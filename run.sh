@@ -11,4 +11,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Run the interpreter, keeping the current working directory so that relative
 # LOAD paths in USQL programs (e.g. "./module.csv") resolve correctly.
-PYTHONPATH="$SCRIPT_DIR/src" python3 "$SCRIPT_DIR/src/main.py" "$@"
+# Use the venv python if present (has lark installed), otherwise fall back.
+if [ -f "$SCRIPT_DIR/.venv/bin/python3" ]; then
+    PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+else
+    PYTHON="python3"
+fi
+
+PYTHONPATH="$SCRIPT_DIR/src" "$PYTHON" "$SCRIPT_DIR/src/main.py" "$@"
