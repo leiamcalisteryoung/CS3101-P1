@@ -28,13 +28,21 @@ usql_grammar = """
     theta: attr "=" attr
          | attr "=" const
 
-    query: "LET" relvar "BE" query
-         | "SELECT" relvar "WHERE" theta lend
-         | "PROJECT" relvar "ON" attrlist lend
-         | "UNION" relvar "AND" relvar lend
-         | "DIFFERENCE" relvar "AND" relvar lend
-         | "JOIN" relvar "AND" relvar lend
-         | "RENAME" relvar "ON" attrlist lend
+    query: let_query
+         | select_query
+         | project_query
+         | union_query
+         | difference_query
+         | join_query
+         | rename_query
+
+    let_query: "LET" relvar "BE" query
+    select_query: "SELECT" relvar "WHERE" theta lend
+    project_query: "PROJECT" relvar "ON" attrlist lend
+    union_query: "UNION" relvar "AND" relvar lend
+    difference_query: "DIFFERENCE" relvar "AND" relvar lend
+    join_query: "JOIN" relvar "AND" relvar lend
+    rename_query: "RENAME" relvar "ON" attrlist lend
 
 
     %import common.UCASE_LETTER
