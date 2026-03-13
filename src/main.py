@@ -2,25 +2,8 @@ import argparse
 from pathlib import Path
 
 from builder import USQLModelBuilder
+from optimizer import QueryOptimizer
 from query_engine import QueryEngine
-
-
-def run_program(source: str) -> str:
-    # Phase 1: build declarations/load state + parsed query objects.
-    state = USQLModelBuilder().build(source)
-
-    # Phase 2: execute queries in order and get the final relation result.
-    result = QueryEngine().run(state)
-
-    # Repr output already matches required USQL stdout format.
-    return repr(result)
-
-
-def run_optimizer(source: str) -> str:
-    # TODO: implement query optimizer mode (--o flag).
-    # Will print each optimisation step and the equivalence rule applied.
-    raise NotImplementedError("Query optimizer not yet implemented.")
-
 
 def main() -> None:
     # CLI entry point — dispatches to interpreter or optimizer based on flags.
@@ -33,11 +16,12 @@ def main() -> None:
     args = parser.parse_args()
 
     source = Path(args.program).read_text(encoding="utf-8")
+    state = USQLModelBuilder().build(source)
 
     if args.o:
-        print(run_optimizer(source))
+        print(QueryOptimizer().run(state))
     else:
-        print(run_program(source))
+        print(QueryEngine().run(state))
 
 
 if __name__ == "__main__":
