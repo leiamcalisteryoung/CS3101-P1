@@ -80,19 +80,19 @@ class QueryEngine:
 
         # for each tuple, add to result if it satisfies the predicate
         for row in source.tuples:
-            if predicate.left_attr not in row:
-                raise ValueError("SELECT predicate references missing attribute.")
-            
             # A1 = A2 predicate
             if isinstance(predicate, AttrEqAttrPredicate):
-                if predicate.right_attr not in row:
+                if predicate.left_attr not in row or predicate.right_attr not in row:
                     raise ValueError("SELECT predicate references missing attribute.")
+
                 if row[predicate.left_attr] == row[predicate.right_attr]:
                     result_rows.append(dict(row))
 
-            # A1 = c predicate
-            if isinstance(predicate, AttrEqConstPredicate):
-                if row[predicate.left_attr] == predicate.value:
+            # A = c predicate
+            elif isinstance(predicate, AttrEqConstPredicate):
+                if predicate.attr not in row:
+                    raise ValueError("SELECT predicate references missing attribute.")
+                if row[predicate.attr] == predicate.value:
                     result_rows.append(dict(row))
 
         return RelVar(relation=source.relation, tuples=result_rows)
