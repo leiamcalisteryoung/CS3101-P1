@@ -22,6 +22,12 @@ class RelVarQuery:
 
 
 @dataclass
+class EmptyQuery:
+    """Internal optimizer-only empty relation node"""
+    pass
+
+
+@dataclass
 class LetQuery:
     """Assigns a query result to a relvar
     LET r BE q"""
@@ -79,7 +85,7 @@ class RenameQuery:
 
 # Type aliases
 Predicate = AttrEqAttrPredicate | AttrEqConstPredicate
-QueryExpr = RelVarQuery | SelectQuery | ProjectQuery | UnionQuery | DifferenceQuery | JoinQuery | RenameQuery
+QueryExpr = EmptyQuery | RelVarQuery | SelectQuery | ProjectQuery | UnionQuery | DifferenceQuery | JoinQuery | RenameQuery
 Query = LetQuery | QueryExpr
 
 
@@ -111,6 +117,9 @@ def _inline_query(
     bindings: dict[str, QueryExpr],
     active: set[str],
 ) -> QueryExpr:
+    if isinstance(query, EmptyQuery):
+        return EmptyQuery()
+
     if isinstance(query, RelVarQuery):
         # 'active' tracks the current inlining path (DFS stack).
         # If we revisit the same relvar while it's active, we found a LET cycle.
@@ -160,6 +169,9 @@ def _inline_query(
 
 # Pretty-printer for query expression trees.
 def format_query_expr(expr: QueryExpr) -> str:
+    if isinstance(expr, EmptyQuery):
+        return "∅"
+
     if isinstance(expr, RelVarQuery):
         return expr.name
 
