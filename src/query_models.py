@@ -205,7 +205,7 @@ def format_query_expr(expr: QueryExpr) -> str:
 
     raise ValueError(f"Unsupported expression node type: {type(expr).__name__}")
 
-
+# Pretty-printer for predicates.
 def format_predicate(predicate: Predicate) -> str:
     if isinstance(predicate, AndPredicate):
         return f"({format_predicate(predicate.left)}∧{format_predicate(predicate.right)})"
@@ -219,7 +219,7 @@ def format_predicate(predicate: Predicate) -> str:
 
     raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
 
-
+# Gets the set of attribute names referenced in a predicate (for optimizer use).
 def predicate_attributes(predicate: Predicate) -> set[str]:
     if isinstance(predicate, AttrEqAttrPredicate):
         return {predicate.left_attr, predicate.right_attr}

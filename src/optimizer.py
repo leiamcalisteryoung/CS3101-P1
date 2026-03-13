@@ -1,12 +1,15 @@
 from builder import ProgramState
 from query_models import (
     AndPredicate,
+    AttrEqAttrPredicate,
+    AttrEqConstPredicate,
     DifferenceQuery,
     EmptyQuery,
     JoinQuery,
     Predicate,
     ProjectQuery,
     QueryExpr,
+    RelVarQuery,
     RenameQuery,
     SelectQuery,
     UnionQuery,
@@ -20,6 +23,9 @@ from query_models import (
 class QueryOptimizer:
     # Main entry point
     def run(self, state: ProgramState) -> str:
+        # Store state so helper methods can look up relvar info.
+        self._state = state
+        
         # Get the final query expression with all LETs inlined
         expr = inline_final_query(state.queries)
         steps: list[str] = [f"Initial inlined query: {format_query_expr(expr)}"]
@@ -101,6 +107,11 @@ class QueryOptimizer:
         rewritten, rule_name = self._apply_unary_equivalences(expr)
         if rewritten is not None:
             return rewritten, rule_name
+        
+        # 3) Pushing selections
+        rewritten, rule_name = self._apply_selection_pushdown(expr)
+        if rewritten is not None:
+            return rewritten, rule_name
 
         # No rewrite applied to this node
         return None, None
@@ -152,7 +163,7 @@ class QueryOptimizer:
 
         return None
     
-    # Apply unary equivalence rewrites. Returns the rewritten query and the name of the rule applied (or None if no rewrite applies).
+    # Apply unary equivalence rewrites that only require structural pattern matching, without needing to know relation contents.
     def _apply_unary_equivalences(self, expr: QueryExpr) -> tuple[QueryExpr | None, str | None]:
         # σθ1 (σθ2 (r)) ≡ σθ1∧θ2 (r)
         if isinstance(expr, SelectQuery) and isinstance(expr.source, SelectQuery):
@@ -181,3 +192,106 @@ class QueryOptimizer:
             return merged, "Nested rename merge"
 
         return None, None
+
+    def _apply_selection_pushdown(self, expr: QueryExpr) -> tuple[QueryExpr | None, str | None]:
+        # σθ(πA(r)) ≡ πA(σθ(r))
+        if isinstance(expr, SelectQuery) and isinstance(expr.source, ProjectQuery):
+            pushed = ProjectQuery(
+                source=SelectQuery(source=expr.source.source, predicate=expr.predicate),
+                attributes=list(expr.source.attributes),
+            )
+            return pushed, "Selection pushdown through projection"
+        
+        # σθ(ρa(r)) ≡ ρa(σθ′ (r))
+        if isinstance(expr, SelectQuery) and isinstance(expr.source, RenameQuery):
+            # create mapping of old to new names and rename predicate attributes according to the rename mapping
+            old_attrs = self._output_attributes(expr.source.source)
+            renamed_attrs = list(expr.source.new_attributes)
+            old_to_new = dict(zip(old_attrs, renamed_attrs))
+            adjusted_predicate = self._rename_predicate_attributes(expr.predicate, old_to_new)
+
+            pushed = RenameQuery(
+                source=SelectQuery(source=expr.source.source, predicate=adjusted_predicate),
+                new_attributes=list(expr.source.new_attributes),
+            )
+            return pushed, "Selection pushdown through rename"
+        
+        # σθ(r ∪s) ≡ σθ(r) ∪σθ(s)
+        if isinstance(expr, SelectQuery) and isinstance(expr.source, UnionQuery):
+            pushed = UnionQuery(
+                left=SelectQuery(source=expr.source.left, predicate=expr.predicate),
+                right=SelectQuery(source=expr.source.right, predicate=expr.predicate),
+            )
+            return pushed, "Selection pushdown through union"
+        
+        # σθ(r−s) ≡ σθ(r)−σθ(s)
+        if isinstance(expr, SelectQuery) and isinstance(expr.source, DifferenceQuery):
+            pushed = DifferenceQuery(
+                left=SelectQuery(source=expr.source.left, predicate=expr.predicate),
+                right=SelectQuery(source=expr.source.right, predicate=expr.predicate),
+            )
+            return pushed, "Selection pushdown through difference"
+        
+        # TODO: σθ1∧θ2∧θ3 (r ▷◁s) ≡ σθ1 (σθ2 (r) ▷◁σθ3 (s))
+        
+
+        return None, None
+
+    # Helper method to get the output attributes of a query expression.
+    def _output_attributes(self, expr: QueryExpr) -> list[str]:
+        # Base case: RelVarQuery, look up the relvar and return its relation's attribute names.
+        if isinstance(expr, RelVarQuery):
+            relvar = self._state.relvars.get(expr.name)
+            if relvar is None:
+                raise ValueError(f"Unknown relvar '{expr.name}' while inferring attributes.")
+            return relvar.relation.attr_names()
+        
+        if isinstance(expr, EmptyQuery):
+            return []
+        
+        # Otherwise recursively determine output attributes based on query types.
+        if isinstance(expr, SelectQuery):
+            return self._output_attributes(expr.source)
+
+        if isinstance(expr, ProjectQuery):
+            return list(expr.attributes)
+
+        if isinstance(expr, RenameQuery):
+            return list(expr.new_attributes)
+
+        if isinstance(expr, UnionQuery) or isinstance(expr, DifferenceQuery):
+            return self._output_attributes(expr.left)
+
+        if isinstance(expr, JoinQuery):
+            left_attrs = self._output_attributes(expr.left)
+            right_attrs = self._output_attributes(expr.right)
+            right_only = [attr for attr in right_attrs if attr not in left_attrs]
+            return left_attrs + right_only
+
+        raise ValueError(f"Unsupported query node type: {type(expr).__name__}")
+
+    # Helper method to rename attributes in a predicate according to a mapping, used for selection pushdown through renames.
+    def _rename_predicate_attributes(
+        self,
+        predicate: Predicate,
+        old_to_new: dict[str, str],
+    ) -> Predicate:
+        if isinstance(predicate, AttrEqAttrPredicate):
+            return AttrEqAttrPredicate(
+                left_attr=old_to_new[predicate.left_attr],
+                right_attr=old_to_new[predicate.right_attr],
+            )
+
+        if isinstance(predicate, AttrEqConstPredicate):
+            return AttrEqConstPredicate(
+                attr=old_to_new[predicate.attr],
+                value=predicate.value,
+            )
+
+        if isinstance(predicate, AndPredicate):
+            return AndPredicate(
+                left=self._rename_predicate_attributes(predicate.left, old_to_new),
+                right=self._rename_predicate_attributes(predicate.right, old_to_new),
+            )
+
+        raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
