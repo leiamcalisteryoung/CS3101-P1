@@ -16,8 +16,8 @@ usql_grammar = """
 
     program: domain* type* relation* load* query+
     
-    gtype: "String" | "Int"
-    domain: "DOMAIN" dname "IS" gtype lend
+    GTYPE: "String" | "Int"
+    domain: "DOMAIN" dname "IS" GTYPE lend
 
     type: "TYPE" attr "AS" dname lend
 
