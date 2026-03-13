@@ -7,11 +7,13 @@ from query_models import (
     JoinQuery,
     LetQuery,
     ProjectQuery,
+    RelVarQuery,
     RenameQuery,
     SelectQuery,
     UnionQuery,
     Predicate,
-    Query
+    Query,
+    QueryExpr
 )
 
 
@@ -31,44 +33,49 @@ class QueryEngine:
 
         return result
 
+    # Evaluate a single query
     def _eval_query(self, query: Query, state: ProgramState) -> RelVar:
+        # Relvar leaf node resolves directly from program state.
+        if isinstance(query, RelVarQuery):
+            return self._get_relvar(state, query.name)
+        
         # LET queries recursively evaluate their nested query and assign the result to a relvar in the state
         if isinstance(query, LetQuery):
             value = self._eval_query(query.query, state)
             state.relvars[query.target_relvar] = value
             return value
 
-        # Select queries: filter relvar tuples by predicate
+        # Select queries: filter source tuples by predicate
         if isinstance(query, SelectQuery):
-            source = self._get_relvar(state, query.relvar)
+            source = self._eval_query(query.source, state)
             return self._select(source, query.predicate)
 
-        # Project queries: keep only selected attributes of relvar
+        # Project queries: keep only selected attributes of source
         if isinstance(query, ProjectQuery):
-            source = self._get_relvar(state, query.relvar)
+            source = self._eval_query(query.source, state)
             return self._project(source, query.attributes)
 
-        # Union queries: set union of two relvars
+        # Union queries: set union of two source expressions
         if isinstance(query, UnionQuery):
-            left = self._get_relvar(state, query.left_relvar)
-            right = self._get_relvar(state, query.right_relvar)
+            left = self._eval_query(query.left, state)
+            right = self._eval_query(query.right, state)
             return self._union(left, right)
 
-        # Difference queries: set difference of two relvars
+        # Difference queries: set difference of two source expressions
         if isinstance(query, DifferenceQuery):
-            left = self._get_relvar(state, query.left_relvar)
-            right = self._get_relvar(state, query.right_relvar)
+            left = self._eval_query(query.left, state)
+            right = self._eval_query(query.right, state)
             return self._difference(left, right)
 
-        # Join queries: natural join of two relvars 
+        # Join queries: natural join of two source expressions
         if isinstance(query, JoinQuery):
-            left = self._get_relvar(state, query.left_relvar)
-            right = self._get_relvar(state, query.right_relvar)
+            left = self._eval_query(query.left, state)
+            right = self._eval_query(query.right, state)
             return self._join(left, right)
 
-        # Rename queries: change attribute names of a relvar
+        # Rename queries: change attribute names of a source expression
         if isinstance(query, RenameQuery):
-            source = self._get_relvar(state, query.relvar)
+            source = self._eval_query(query.source, state)
             return self._rename(source, query.new_attributes)
 
         raise ValueError(f"Unsupported query type: {type(query).__name__}")

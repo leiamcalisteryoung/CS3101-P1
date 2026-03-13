@@ -3,6 +3,7 @@ from lark import Token, Tree
 from query_models import (
     AttrEqAttrPredicate,
     AttrEqConstPredicate,
+    RelVarQuery,
     DifferenceQuery,
     JoinQuery,
     LetQuery,
@@ -38,37 +39,37 @@ class QueryBuilder:
             relvar = self._name_from_node(query_type.children[0])
             theta_node = query_type.children[1]
             # build the predicate from the theta node and return a SelectQuery object
-            return SelectQuery(relvar=relvar, predicate=self._build_predicate(theta_node))
+            return SelectQuery(source=RelVarQuery(name=relvar), predicate=self._build_predicate(theta_node))
 
         # Project queries: PROJECT r ON A1, ..., An
         if query_type.data == "project_query":
             relvar = self._name_from_node(query_type.children[0])
             attrs = self._attr_names(query_type.children[1])
-            return ProjectQuery(relvar=relvar, attributes=attrs)
+            return ProjectQuery(source=RelVarQuery(name=relvar), attributes=attrs)
 
         # Union queries: UNION r AND r
         if query_type.data == "union_query":
             left = self._name_from_node(query_type.children[0])
             right = self._name_from_node(query_type.children[1])
-            return UnionQuery(left_relvar=left, right_relvar=right)
+            return UnionQuery(left=RelVarQuery(name=left), right=RelVarQuery(name=right))
 
         # Difference queries: DIFFERENCE r AND r
         if query_type.data == "difference_query":
             left = self._name_from_node(query_type.children[0])
             right = self._name_from_node(query_type.children[1])
-            return DifferenceQuery(left_relvar=left, right_relvar=right)
+            return DifferenceQuery(left=RelVarQuery(name=left), right=RelVarQuery(name=right))
 
         # Join queries: JOIN r AND r
         if query_type.data == "join_query":
             left = self._name_from_node(query_type.children[0])
             right = self._name_from_node(query_type.children[1])
-            return JoinQuery(left_relvar=left, right_relvar=right)
+            return JoinQuery(left=RelVarQuery(name=left), right=RelVarQuery(name=right))
 
         # Rename queries: RENAME r ON A1, ..., An
         if query_type.data == "rename_query":
             relvar = self._name_from_node(query_type.children[0])
             attrs = self._attr_names(query_type.children[1])
-            return RenameQuery(relvar=relvar, new_attributes=attrs)
+            return RenameQuery(source=RelVarQuery(name=relvar), new_attributes=attrs)
 
         raise ValueError(f"Unsupported query rule '{query_type.data}'.")
 

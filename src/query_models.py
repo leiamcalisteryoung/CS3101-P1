@@ -14,6 +14,13 @@ class AttrEqConstPredicate:
     attr: str
     value: int | str
 
+
+# Leaf node: reference to a relation variable name.
+@dataclass
+class RelVarQuery:
+    name: str
+
+
 @dataclass
 class LetQuery:
     """Assigns a query result to a relvar
@@ -24,52 +31,53 @@ class LetQuery:
 
 @dataclass
 class SelectQuery:
-    """Selects tuples from a relvar that satisfy a predicate
+    """Selects tuples from a source query that satisfy a predicate.
     SELECT r WHERE p"""
-    relvar: str
+    source: "QueryExpr"
     predicate: "Predicate"
 
 
 @dataclass
 class ProjectQuery:
-    """Projects attributes from a relvar
+    """Projects attributes from a source query.
     PROJECT r ON A1, ..., An"""
-    relvar: str
+    source: "QueryExpr"
     attributes: list[str]
 
 
 @dataclass
 class UnionQuery:
-    """Forms the set union of two relvars
-    UNION r and r"""
-    left_relvar: str
-    right_relvar: str
+    """Forms the set union of two source queries.
+    UNION r AND r"""
+    left: "QueryExpr"
+    right: "QueryExpr"
 
 
 @dataclass
 class DifferenceQuery:
-    """Forms the set difference of two relvars
-    DIFFERENCE r and r"""
-    left_relvar: str
-    right_relvar: str
+    """Forms the set difference of two source queries.
+    DIFFERENCE r AND r"""
+    left: "QueryExpr"
+    right: "QueryExpr"
 
 
 @dataclass
 class JoinQuery:
-    """Forms the natural join of two relvars
-    JOIN r and r"""
-    left_relvar: str
-    right_relvar: str
+    """Forms the natural join of two source queries.
+    JOIN r AND r"""
+    left: "QueryExpr"
+    right: "QueryExpr"
 
 
 @dataclass
 class RenameQuery:
-    """Renames attributes of a relvar
-    RENAME r ON A1, ..., An"""
-    relvar: str
+    """Renames attributes of a source query.
+    RENAME r AS A1, ..., An"""
+    source: "QueryExpr"
     new_attributes: list[str]
 
 
 # Type aliases
 Predicate = AttrEqAttrPredicate | AttrEqConstPredicate
-Query = LetQuery | SelectQuery | ProjectQuery | UnionQuery | DifferenceQuery | JoinQuery | RenameQuery
+QueryExpr = RelVarQuery | SelectQuery | ProjectQuery | UnionQuery | DifferenceQuery | JoinQuery | RenameQuery
+Query = LetQuery | QueryExpr
