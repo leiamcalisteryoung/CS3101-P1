@@ -181,6 +181,7 @@ class USQLModelBuilder:
                     else:
                         tuple_dict[attr.name] = value
 
+                # TODO: If we enforce strict relational set semantics, check/remove duplicate tuples here.
                 tuples.append(tuple_dict)
 
         return tuples

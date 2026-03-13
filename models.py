@@ -61,6 +61,10 @@ class RelVar:
     relation: Relation
     tuples: list[dict[str, int | str]] = field(default_factory=list)
 
+    # return a hashable tuple of all values in this row, in attribute order
+    def row_signature(self, row: dict[str, int | str]) -> tuple[int | str, ...]:
+        return tuple(row[attr] for attr in self.relation.attr_names())
+
     # print the CSV formatted relvar
     def __repr__(self) -> str:
         lines = [", ".join(self.relation.attr_names()) + ";"]
