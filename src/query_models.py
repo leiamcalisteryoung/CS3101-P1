@@ -81,3 +81,118 @@ class RenameQuery:
 Predicate = AttrEqAttrPredicate | AttrEqConstPredicate
 QueryExpr = RelVarQuery | SelectQuery | ProjectQuery | UnionQuery | DifferenceQuery | JoinQuery | RenameQuery
 Query = LetQuery | QueryExpr
+
+
+# Build one large expression tree by inlining LET-defined relvars in query order.
+def inline_final_query(queries: list[Query]) -> QueryExpr:
+    if not queries:
+        raise ValueError("Program has no queries to optimize.")
+
+    # Map relvar names to their inlined expression trees from LET statements.
+    bindings: dict[str, QueryExpr] = {}
+
+    # Build bindings from preceding LET queries in execution order.
+    for query in queries[:-1]:
+        if isinstance(query, LetQuery):
+            bindings[query.target_relvar] = _inline_query(
+                query.query,
+                bindings,
+                active=set(),
+            )
+
+    # Return the final query with all LET-defined relvars substituted.
+    final_query = queries[-1]
+    return _inline_query(final_query, bindings, active=set())
+
+
+# Recursively substitute LET-defined relvars with their expression trees.
+def _inline_query(
+    query: Query,
+    bindings: dict[str, QueryExpr],
+    active: set[str],
+) -> QueryExpr:
+    if isinstance(query, RelVarQuery):
+        # 'active' tracks the current inlining path (DFS stack).
+        # If we revisit the same relvar while it's active, we found a LET cycle.
+        if query.name in active:
+            raise ValueError(f"Cyclic LET dependency detected at relvar '{query.name}'.")
+
+        if query.name in bindings:
+            return _inline_query(bindings[query.name], bindings, active | {query.name})
+
+        # Base relation / loaded relvar leaf.
+        return RelVarQuery(name=query.name)
+
+    if isinstance(query, SelectQuery):
+        source = _inline_query(query.source, bindings, active)
+        return SelectQuery(source=source, predicate=query.predicate)
+
+    if isinstance(query, ProjectQuery):
+        source = _inline_query(query.source, bindings, active)
+        return ProjectQuery(source=source, attributes=list(query.attributes))
+
+    if isinstance(query, UnionQuery):
+        left = _inline_query(query.left, bindings, active)
+        right = _inline_query(query.right, bindings, active)
+        return UnionQuery(left=left, right=right)
+
+    if isinstance(query, DifferenceQuery):
+        left = _inline_query(query.left, bindings, active)
+        right = _inline_query(query.right, bindings, active)
+        return DifferenceQuery(left=left, right=right)
+
+    if isinstance(query, JoinQuery):
+        left = _inline_query(query.left, bindings, active)
+        right = _inline_query(query.right, bindings, active)
+        return JoinQuery(left=left, right=right)
+
+    if isinstance(query, RenameQuery):
+        source = _inline_query(query.source, bindings, active)
+        return RenameQuery(source=source, new_attributes=list(query.new_attributes))
+
+    if isinstance(query, LetQuery):
+        rhs = _inline_query(query.query, bindings, active)
+        bindings[query.target_relvar] = rhs
+        return rhs
+
+    raise ValueError(f"Unsupported query node type: {type(query).__name__}")
+
+
+# Pretty-printer for query expression trees.
+def format_query_expr(expr: QueryExpr) -> str:
+    if isinstance(expr, RelVarQuery):
+        return expr.name
+
+    if isinstance(expr, SelectQuery):
+        pred = format_predicate(expr.predicate)
+        return f"σ[{pred}]({format_query_expr(expr.source)})"
+
+    if isinstance(expr, ProjectQuery):
+        attrs = ", ".join(expr.attributes)
+        return f"π[{attrs}]({format_query_expr(expr.source)})"
+
+    if isinstance(expr, UnionQuery):
+        return f"({format_query_expr(expr.left)} ∪ {format_query_expr(expr.right)})"
+
+    if isinstance(expr, DifferenceQuery):
+        return f"({format_query_expr(expr.left)} − {format_query_expr(expr.right)})"
+
+    if isinstance(expr, JoinQuery):
+        return f"({format_query_expr(expr.left)} ⋈ {format_query_expr(expr.right)})"
+
+    if isinstance(expr, RenameQuery):
+        attrs = ", ".join(expr.new_attributes)
+        return f"ρ[{attrs}]({format_query_expr(expr.source)})"
+
+    raise ValueError(f"Unsupported expression node type: {type(expr).__name__}")
+
+
+def format_predicate(predicate: Predicate) -> str:
+    if isinstance(predicate, AttrEqAttrPredicate):
+        return f"{predicate.left_attr}={predicate.right_attr}"
+
+    if isinstance(predicate, AttrEqConstPredicate):
+        value = repr(predicate.value) if isinstance(predicate.value, str) else str(predicate.value)
+        return f"{predicate.attr}={value}"
+
+    raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
