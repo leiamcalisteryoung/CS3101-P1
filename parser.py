@@ -47,3 +47,7 @@ usql_grammar = """
 
 l = Lark(usql_grammar)
 
+
+def parse_usql(source: str):
+     return l.parse(source)
+
