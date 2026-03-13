@@ -1,15 +1,19 @@
 from builder import ProgramState
 from query_models import (
+    AndPredicate,
     DifferenceQuery,
     EmptyQuery,
     JoinQuery,
+    Predicate,
     ProjectQuery,
     QueryExpr,
     RenameQuery,
     SelectQuery,
     UnionQuery,
+    format_predicate,
     format_query_expr,
     inline_final_query,
+    predicate_attributes,
 )
 
 
@@ -88,15 +92,18 @@ class QueryOptimizer:
 
     # Try all rewrites for one node in priority order, returning the first successful rewrite and its rule name (or None if no rewrite applies).
     def _apply_node_rewrite_rules(self, expr: QueryExpr) -> tuple[QueryExpr | None, str | None]:
-        # Try trivial simplifications first
+        # 1) Try trivial simplifications first.
         rewritten = self._apply_trivial_simplification(expr)
         if rewritten is not None and rewritten != expr:
             return rewritten, "Trivial simplification"
-        
-        # TODO: add other rewrites here
+
+        # 2) Unary equivalences
+        rewritten, rule_name = self._apply_unary_equivalences(expr)
+        if rewritten is not None:
+            return rewritten, rule_name
 
         # No rewrite applied to this node
-        return expr, None
+        return None, None
 
     # Trivial simplifications that don't require knowing the relation contents, just the query structure.
     def _apply_trivial_simplification(self, expr: QueryExpr) -> QueryExpr | None:
@@ -144,3 +151,33 @@ class QueryOptimizer:
             return EmptyQuery()
 
         return None
+    
+    # Apply unary equivalence rewrites. Returns the rewritten query and the name of the rule applied (or None if no rewrite applies).
+    def _apply_unary_equivalences(self, expr: QueryExpr) -> tuple[QueryExpr | None, str | None]:
+        # σθ1 (σθ2 (r)) ≡ σθ1∧θ2 (r)
+        if isinstance(expr, SelectQuery) and isinstance(expr.source, SelectQuery):
+            merged = SelectQuery(
+                source=expr.source.source,
+                predicate=AndPredicate(left=expr.predicate, right=expr.source.predicate),
+            )
+            return merged, "Selection conjunction merge"
+        
+        # σθ1 (σθ2 (r)) ≡ σθ2 (σθ1 (r)) is pointless to apply because the predicates will be combined anyway
+
+        # πA1 (πA2 (r)) ≡ πA1 (r)
+        if isinstance(expr, ProjectQuery) and isinstance(expr.source, ProjectQuery):
+            merged = ProjectQuery(
+                source=expr.source.source,
+                attributes=[attr for attr in expr.attributes],
+            )
+            return merged, "Nested projection merge"
+        
+        # ρa1 (ρa2 (r)) ≡ ρa3 (r) (USQL only has generalised renaming so a3 = a1 here)
+        if isinstance(expr, RenameQuery) and isinstance(expr.source, RenameQuery):
+            merged = RenameQuery(
+                source=expr.source.source,
+                new_attributes=[attr for attr in expr.new_attributes],
+            )
+            return merged, "Nested rename merge"
+
+        return None, None

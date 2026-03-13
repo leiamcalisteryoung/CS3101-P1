@@ -1,6 +1,7 @@
 from builder import ProgramState
 from models import Attribute, Relation, RelVar
 from query_models import (
+    AndPredicate,
     AttrEqAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,

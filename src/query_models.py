@@ -15,6 +15,13 @@ class AttrEqConstPredicate:
     value: int | str
 
 
+@dataclass
+class AndPredicate:
+    """Conjunction of two predicates (θ1 ∧ θ2) (internal optimizer-only node)"""
+    left: "Predicate"
+    right: "Predicate"
+
+
 # Leaf node: reference to a relation variable name.
 @dataclass
 class RelVarQuery:
@@ -84,7 +91,7 @@ class RenameQuery:
 
 
 # Type aliases
-Predicate = AttrEqAttrPredicate | AttrEqConstPredicate
+Predicate = AttrEqAttrPredicate | AttrEqConstPredicate | AndPredicate
 QueryExpr = EmptyQuery | RelVarQuery | SelectQuery | ProjectQuery | UnionQuery | DifferenceQuery | JoinQuery | RenameQuery
 Query = LetQuery | QueryExpr
 
@@ -200,11 +207,27 @@ def format_query_expr(expr: QueryExpr) -> str:
 
 
 def format_predicate(predicate: Predicate) -> str:
+    if isinstance(predicate, AndPredicate):
+        return f"({format_predicate(predicate.left)}∧{format_predicate(predicate.right)})"
+
     if isinstance(predicate, AttrEqAttrPredicate):
         return f"{predicate.left_attr}={predicate.right_attr}"
 
     if isinstance(predicate, AttrEqConstPredicate):
         value = repr(predicate.value) if isinstance(predicate.value, str) else str(predicate.value)
         return f"{predicate.attr}={value}"
+
+    raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
+
+
+def predicate_attributes(predicate: Predicate) -> set[str]:
+    if isinstance(predicate, AttrEqAttrPredicate):
+        return {predicate.left_attr, predicate.right_attr}
+
+    if isinstance(predicate, AttrEqConstPredicate):
+        return {predicate.attr}
+
+    if isinstance(predicate, AndPredicate):
+        return predicate_attributes(predicate.left) | predicate_attributes(predicate.right)
 
     raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
