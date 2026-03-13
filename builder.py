@@ -7,6 +7,8 @@ from lark import Token, Tree
 
 from models import Attribute, Domain, GType, Relation, RelVar
 from parser import parse_usql
+from query_builder import QueryBuilder
+from query_models import Query
 
 
 @dataclass
@@ -20,9 +22,13 @@ class ProgramState:
     relations: dict[str, Relation] = field(default_factory=dict)
     relvars: dict[str, RelVar] = field(default_factory=dict)
     loaded_from: dict[str, str] = field(default_factory=dict)
+    queries: list[Query] = field(default_factory=list)
 
 
 class USQLModelBuilder:
+    def __init__(self) -> None:
+        self.query_builder = QueryBuilder()
+
     def build(self, source: str) -> ProgramState:
         # Parse source text into a concrete syntax tree (CST).
         tree = parse_usql(source)
@@ -51,8 +57,7 @@ class USQLModelBuilder:
             elif node.data == "load":
                 self._handle_load(node, state)
             elif node.data == "query":
-                # TODO: Query evaluation
-                break
+                state.queries.append(self.query_builder.build_query(node))
 
         return state
 
