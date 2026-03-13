@@ -59,3 +59,7 @@ l = Lark(usql_grammar)
 def parse_usql(source: str):
      return l.parse(source)
 
+
+def pretty_cst(source: str) -> str:
+     return parse_usql(source).pretty()
+
