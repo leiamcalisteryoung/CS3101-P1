@@ -115,7 +115,7 @@ class QueryOptimizer:
 
         # No rewrite applied to this node
         return None, None
-
+    
     # Trivial simplifications that don't require knowing the relation contents, just the query structure.
     def _apply_trivial_simplification(self, expr: QueryExpr) -> QueryExpr | None:
         # r ∪ r ≡ r
@@ -137,7 +137,7 @@ class QueryOptimizer:
             if isinstance(expr.right, EmptyQuery):
                 return expr.left
 
-        # r ▷◁ ∅ ≡ ∅,  ∅ ▷◁ r ≡ ∅, r ▷◁θ ∅ ≡ ∅, ∅ ▷◁θ r ≡ ∅
+        # r ▷◁ ∅ ≡ ∅,  ∅ ▷◁ r ≡ ∅
         if isinstance(expr, JoinQuery):
             if isinstance(expr.left, EmptyQuery) or isinstance(expr.right, EmptyQuery):
                 return EmptyQuery()
@@ -193,6 +193,7 @@ class QueryOptimizer:
 
         return None, None
 
+    # Apply rewrites that push selections down through other operators, returning the rewritten query and the rule name (or None if no rewrite applies).
     def _apply_selection_pushdown(self, expr: QueryExpr) -> tuple[QueryExpr | None, str | None]:
         # σθ(πA(r)) ≡ πA(σθ(r))
         if isinstance(expr, SelectQuery) and isinstance(expr.source, ProjectQuery):
@@ -202,7 +203,7 @@ class QueryOptimizer:
             )
             return pushed, "Selection pushdown through projection"
         
-        # σθ(ρa(r)) ≡ ρa(σθ′ (r))
+        # σθ(ρa(r)) ≡ ρa(σθ′ (r)) where θ′ is an appropriate renaming of θ
         if isinstance(expr, SelectQuery) and isinstance(expr.source, RenameQuery):
             # The predicate currently refers to the renamed attribute names.
             # Create mapping of new to old names so we can revert to the original names in the predicate
