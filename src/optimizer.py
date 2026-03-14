@@ -25,7 +25,7 @@ class QueryOptimizer:
     def run(self, state: ProgramState) -> str:
         # Store state so helper methods can look up relvar info.
         self._state = state
-        
+
         # Get the final query expression with all LETs inlined
         expr = inline_final_query(state.queries)
         steps: list[str] = [f"Initial inlined query: {format_query_expr(expr)}"]
@@ -232,10 +232,82 @@ class QueryOptimizer:
             )
             return pushed, "Selection pushdown through difference"
         
-        # TODO: σθ1∧θ2∧θ3 (r ▷◁s) ≡ σθ1 (σθ2 (r) ▷◁σθ3 (s))
-        
+        # σθ1∧θ2∧θ3 (r ▷◁s) ≡ σθ1 (σθ2 (r) ▷◁σθ3 (s)) where:
+        #   θ1:  all referenced attrs are output by r, pushed into r
+        #   θ2:  all referenced attrs are output by s, pushed into s
+        #   θ3: predicate spans attrs from both sides, stays outside the join
+        if isinstance(expr, SelectQuery) and isinstance(expr.source, JoinQuery):
+            left_attrs  = set(self._output_attributes(expr.source.left))
+            right_attrs = set(self._output_attributes(expr.source.right))
+
+            # Flatten the possibly nested predicate tree into individual atomic predicates
+            atomic_preds = self._flatten_conjunction(expr.predicate)
+
+            left_preds:  list[Predicate] = []  # pushed into left operand
+            right_preds: list[Predicate] = []  # pushed into right operand
+            cross_preds: list[Predicate] = []  # kept outside (span both sides)
+
+            for pred in atomic_preds:
+                attrs = predicate_attributes(pred)
+                in_left  = attrs.issubset(left_attrs)
+                in_right = attrs.issubset(right_attrs)
+
+                if in_left and in_right:
+                    # All referenced attributes are in both relations, push to both
+                    left_preds.append(pred)
+                    right_preds.append(pred)
+                elif in_left:
+                    left_preds.append(pred)
+                elif in_right:
+                    right_preds.append(pred)
+                else:
+                    # The predicate references one attribute from each side, so it remains outside the join
+                    cross_preds.append(pred)
+
+            # Only rewrite if at least one predicate can actually be pushed down.
+            if not left_preds and not right_preds:
+                return None, None
+
+            # Build the rewritten left and right operands, wrapping with a SelectQuery
+            # only when there are predicates to push to that side.
+            new_left  = expr.source.left
+            new_right = expr.source.right
+
+            if left_preds:
+                new_left  = SelectQuery(source=new_left,  predicate=self._build_conjunction(left_preds))
+            if right_preds:
+                new_right = SelectQuery(source=new_right, predicate=self._build_conjunction(right_preds))
+
+            new_join = JoinQuery(left=new_left, right=new_right)
+
+            # If any cross predicates remain then wrap in a SelectQuery
+            if cross_preds:
+                result: QueryExpr = SelectQuery(source=new_join, predicate=self._build_conjunction(cross_preds))
+            else:
+                result = new_join
+
+            return result, "Selection pushdown through join"
 
         return None, None
+
+    # Flatten a predicate tree into a list of atomic predicates by recursively flattening AndPredicates. Leaves will be AttrEqAttrPredicate or AttrEqConstPredicate.
+    @staticmethod
+    def _flatten_conjunction(pred: Predicate) -> list[Predicate]:
+        if isinstance(pred, AndPredicate):
+            return (
+                QueryOptimizer._flatten_conjunction(pred.left)
+                + QueryOptimizer._flatten_conjunction(pred.right)
+            )
+        # Leaf predicate (AttrEqAttrPredicate or AttrEqConstPredicate)
+        return [pred]
+
+    # Combine a list of predicates into a left-associative AndPredicate conjunction.
+    @staticmethod
+    def _build_conjunction(preds: list[Predicate]) -> Predicate:
+        result = preds[0]
+        for pred in preds[1:]:
+            result = AndPredicate(left=result, right=pred)
+        return result
 
     # Helper method to get the output attributes of a query expression.
     def _output_attributes(self, expr: QueryExpr) -> list[str]:
