@@ -204,11 +204,12 @@ class QueryOptimizer:
         
         # σθ(ρa(r)) ≡ ρa(σθ′ (r))
         if isinstance(expr, SelectQuery) and isinstance(expr.source, RenameQuery):
-            # create mapping of old to new names and rename predicate attributes according to the rename mapping
+            # The predicate currently refers to the renamed attribute names.
+            # Create mapping of new to old names so we can revert to the original names in the predicate
             old_attrs = self._output_attributes(expr.source.source)
             renamed_attrs = list(expr.source.new_attributes)
-            old_to_new = dict(zip(old_attrs, renamed_attrs))
-            adjusted_predicate = self._rename_predicate_attributes(expr.predicate, old_to_new)
+            new_to_old = dict(zip(renamed_attrs, old_attrs))
+            adjusted_predicate = self._rename_predicate_attributes(expr.predicate, new_to_old)
 
             pushed = RenameQuery(
                 source=SelectQuery(source=expr.source.source, predicate=adjusted_predicate),
@@ -346,24 +347,24 @@ class QueryOptimizer:
     def _rename_predicate_attributes(
         self,
         predicate: Predicate,
-        old_to_new: dict[str, str],
+        new_to_old: dict[str, str],
     ) -> Predicate:
         if isinstance(predicate, AttrEqAttrPredicate):
             return AttrEqAttrPredicate(
-                left_attr=old_to_new[predicate.left_attr],
-                right_attr=old_to_new[predicate.right_attr],
+                left_attr=new_to_old[predicate.left_attr],
+                right_attr=new_to_old[predicate.right_attr],
             )
 
         if isinstance(predicate, AttrEqConstPredicate):
             return AttrEqConstPredicate(
-                attr=old_to_new[predicate.attr],
+                attr=new_to_old[predicate.attr],
                 value=predicate.value,
             )
 
         if isinstance(predicate, AndPredicate):
             return AndPredicate(
-                left=self._rename_predicate_attributes(predicate.left, old_to_new),
-                right=self._rename_predicate_attributes(predicate.right, old_to_new),
+                left=self._rename_predicate_attributes(predicate.left, new_to_old),
+                right=self._rename_predicate_attributes(predicate.right, new_to_old),
             )
 
         raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
