@@ -324,19 +324,39 @@ class QueryOptimizer:
             )
             return pushed, "Projection pushdown through union"
 
-        # πα(r ▷◁s) ≡ πα(πR′ (r) ▷◁πS′ (s)) where R′ = R ∩(α∪S) and S′ = S ∩(α∪R).
+        # πα(r ▷◁ s) ≡ πα(πR′(r) ▷◁ πS′(s)) where R′ = R ∩(α∪S) and S′ = S ∩(α∪R).
         if isinstance(expr, ProjectQuery) and isinstance(expr.source, JoinQuery):
-            left_attrs  = set(self._output_attributes(expr.source.left))
-            right_attrs = set(self._output_attributes(expr.source.right))
+            # Get the output attributes of the left and right sides of the join, and determine which attributes need to be kept from each side to produce the final projection.
+            # Use set operations to determine which attributes to keep but lists so it is deterministic.
+            left_attr_list = self._output_attributes(expr.source.left)
+            right_attr_list = self._output_attributes(expr.source.right)
+            left_attrs = set(left_attr_list)
+            right_attrs = set(right_attr_list)
             proj_attrs = set(expr.attributes)
 
-            new_left_attrs  = left_attrs.intersection(proj_attrs.union(right_attrs))
-            new_right_attrs = right_attrs.intersection(proj_attrs.union(left_attrs))
+            keep_left = proj_attrs.union(right_attrs)
+            keep_right = proj_attrs.union(left_attrs)
+            new_left_attrs = [attr for attr in left_attr_list if attr in keep_left]
+            new_right_attrs = [attr for attr in right_attr_list if attr in keep_right]
+            
+            # if pushdown would not remove any attribute from either side, do not rewrite.
+            if new_left_attrs == left_attr_list and new_right_attrs == right_attr_list:
+                return None, None
 
-            pushed = JoinQuery(
-                left=ProjectQuery(source=expr.source.left, attributes=list(new_left_attrs)),
-                right=ProjectQuery(source=expr.source.right, attributes=list(new_right_attrs)),
-            )
+            # Create the inner projections on each side of the join
+            if new_left_attrs == left_attr_list:
+                new_left = expr.source.left
+            else:
+                new_left = ProjectQuery(source=expr.source.left, attributes=new_left_attrs)
+
+            if new_right_attrs == right_attr_list:
+                new_right = expr.source.right
+            else:                
+                new_right = ProjectQuery(source=expr.source.right, attributes=new_right_attrs)
+
+            # Create the join and wrap in original projection
+            pushed_join = JoinQuery(left=new_left, right=new_right)
+            pushed = ProjectQuery(source=pushed_join, attributes=list(expr.attributes))
             return pushed, "Projection pushdown through join"
 
         return None, None
