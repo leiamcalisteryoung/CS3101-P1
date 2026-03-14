@@ -1,4 +1,5 @@
 from builder import ProgramState
+from cost_optimizer import CostBasedJoinOptimizer
 from query_models import (
     AndPredicate,
     AttrEqAttrPredicate,
@@ -13,7 +14,6 @@ from query_models import (
     RenameQuery,
     SelectQuery,
     UnionQuery,
-    format_predicate,
     format_query_expr,
     inline_final_query,
     predicate_attributes,
@@ -41,14 +41,9 @@ class QueryOptimizer:
             expr = rewritten
             steps.append(f"{rule_name}: {format_query_expr(expr)}")
 
-        # Phase 2: cost-based rewrites (separate pass to ensure all structural rewrites are done first).
-        while True:
-            rewritten, rule_name = self._rewrite_once_cost_based(expr)
-            if rule_name is None:
-                break
-
-            expr = rewritten
-            steps.append(f"{rule_name}: {format_query_expr(expr)}")
+        # Phase 2: one bottom-up sweep for cost-based join-chain optimization.
+        expr, phase2_steps = CostBasedJoinOptimizer(self._state).optimize(expr)
+        steps.extend(phase2_steps)
 
         return "\n".join(steps)
 
@@ -104,58 +99,6 @@ class QueryOptimizer:
             return rewritten, rule_name
 
         # No rewrite applied at this node
-        return expr, None
-
-    # Apply first applicable rewrite rule in a bottom-up traversal for phase 2 (cost-based).
-    # This shell currently only targets join reordering decisions.
-    def _rewrite_once_cost_based(self, expr: QueryExpr) -> tuple[QueryExpr, str | None]:
-        if isinstance(expr, SelectQuery):
-            new_source, rule_name = self._rewrite_once_cost_based(expr.source)
-            if rule_name is not None:
-                return SelectQuery(source=new_source, predicate=expr.predicate), rule_name
-
-        elif isinstance(expr, ProjectQuery):
-            new_source, rule_name = self._rewrite_once_cost_based(expr.source)
-            if rule_name is not None:
-                return ProjectQuery(source=new_source, attributes=list(expr.attributes)), rule_name
-
-        elif isinstance(expr, RenameQuery):
-            new_source, rule_name = self._rewrite_once_cost_based(expr.source)
-            if rule_name is not None:
-                return RenameQuery(source=new_source, new_attributes=list(expr.new_attributes)), rule_name
-
-        elif isinstance(expr, UnionQuery):
-            new_left, rule_name = self._rewrite_once_cost_based(expr.left)
-            if rule_name is not None:
-                return UnionQuery(left=new_left, right=expr.right), rule_name
-
-            new_right, rule_name = self._rewrite_once_cost_based(expr.right)
-            if rule_name is not None:
-                return UnionQuery(left=expr.left, right=new_right), rule_name
-
-        elif isinstance(expr, DifferenceQuery):
-            new_left, rule_name = self._rewrite_once_cost_based(expr.left)
-            if rule_name is not None:
-                return DifferenceQuery(left=new_left, right=expr.right), rule_name
-
-            new_right, rule_name = self._rewrite_once_cost_based(expr.right)
-            if rule_name is not None:
-                return DifferenceQuery(left=expr.left, right=new_right), rule_name
-
-        elif isinstance(expr, JoinQuery):
-            new_left, rule_name = self._rewrite_once_cost_based(expr.left)
-            if rule_name is not None:
-                return JoinQuery(left=new_left, right=expr.right), rule_name
-
-            new_right, rule_name = self._rewrite_once_cost_based(expr.right)
-            if rule_name is not None:
-                return JoinQuery(left=expr.left, right=new_right), rule_name
-
-            # No child rewrote, try join reorder at this node
-            rewritten, rule_name = self._apply_cost_based_join_reorder(expr)
-            if rewritten is not None:
-                return rewritten, rule_name
-
         return expr, None
 
     # Try all rewrites for one node in priority order, returning the first successful rewrite and its rule name (or None if no rewrite applies).
@@ -404,7 +347,7 @@ class QueryOptimizer:
             # if pushdown would not remove any attribute from either side, do not rewrite.
             if new_left_attrs == left_attr_list and new_right_attrs == right_attr_list:
                 return None, None
-
+            
             # Create the inner projections on each side of the join
             if new_left_attrs == left_attr_list:
                 new_left = expr.source.left
@@ -422,27 +365,6 @@ class QueryOptimizer:
             return pushed, "Projection pushdown through join"
 
         return None, None
-
-    # Decide local join reordering via cost comparison.
-    def _apply_cost_based_join_reorder(self, expr: JoinQuery) -> tuple[QueryExpr | None, str | None]:
-        # Candidate plans at this node:
-        #   current: (left ⋈ right)
-        #   swapped: (right ⋈ left)
-        # If swapped cost is lower, return swapped.
-        current_cost = self._estimate_plan_cost(expr)
-        swapped = JoinQuery(left=expr.right, right=expr.left)
-        swapped_cost = self._estimate_plan_cost(swapped)
-
-        if swapped_cost < current_cost:
-            return swapped, "Cost-based join reordering"
-
-        return None, None
-
-    # Estimates the cost of executing a query plan, used for cost-based optimization decisions. 
-    def _estimate_plan_cost(self, expr: QueryExpr) -> float:
-        # TODO: add cost estimation
-
-        raise ValueError(f"Unsupported query node type while estimating cost: {type(expr).__name__}")
 
     # Flatten a predicate tree into a list of atomic predicates by recursively flattening AndPredicates. Leaves will be AttrEqAttrPredicate or AttrEqConstPredicate.
     @staticmethod
