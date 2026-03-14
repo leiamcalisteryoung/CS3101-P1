@@ -112,6 +112,11 @@ class QueryOptimizer:
         rewritten, rule_name = self._apply_selection_pushdown(expr)
         if rewritten is not None:
             return rewritten, rule_name
+        
+        # 4) Pushing projections
+        rewritten, rule_name = self._apply_projection_pushdown(expr)
+        if rewritten is not None:
+            return rewritten, rule_name
 
         # No rewrite applied to this node
         return None, None
@@ -289,6 +294,50 @@ class QueryOptimizer:
                 result = new_join
 
             return result, "Selection pushdown through join"
+
+        return None, None
+
+    # Apply rewrites that push projections down through other operators, returning the rewritten query and the rule name (or None if no rewrite applies).
+    def _apply_projection_pushdown(self, expr: QueryExpr) -> tuple[QueryExpr | None, str | None]:
+        # sπA(ρa(r)) ≡ ρa(πA′ (r)) where A' is an appropriate renaming of A
+        if isinstance(expr, ProjectQuery) and isinstance(expr.source, RenameQuery):
+            # Create mapping of new to old names so we can revert to the original names in the projection list
+            old_attrs = self._output_attributes(expr.source.source)
+            renamed_attrs = list(expr.source.new_attributes)
+            new_to_old = dict(zip(renamed_attrs, old_attrs))
+            adjusted_attributes = [new_to_old[attr] for attr in expr.attributes]
+
+            pushed = RenameQuery(
+                source=ProjectQuery(source=expr.source.source, attributes=adjusted_attributes),
+                new_attributes=list(expr.attributes),
+            )
+            return pushed, "Projection pushdown through rename"
+        
+        # πA(σθ(r)) ≡ πA(σθ(πA∪B(r))) is NOT implemented: it would cycle with selection pushdown 
+        # through projection and selection should be done first (heuristic)
+
+        # πA(r ∪s) ≡ πA(r) ∪πA(r)
+        if isinstance(expr, ProjectQuery) and isinstance(expr.source, UnionQuery):
+            pushed = UnionQuery(
+                left=ProjectQuery(source=expr.source.left, attributes=list(expr.attributes)),
+                right=ProjectQuery(source=expr.source.right, attributes=list(expr.attributes)),
+            )
+            return pushed, "Projection pushdown through union"
+
+        # πα(r ▷◁s) ≡ πα(πR′ (r) ▷◁πS′ (s)) where R′ = R ∩(α∪S) and S′ = S ∩(α∪R).
+        if isinstance(expr, ProjectQuery) and isinstance(expr.source, JoinQuery):
+            left_attrs  = set(self._output_attributes(expr.source.left))
+            right_attrs = set(self._output_attributes(expr.source.right))
+            proj_attrs = set(expr.attributes)
+
+            new_left_attrs  = left_attrs.intersection(proj_attrs.union(right_attrs))
+            new_right_attrs = right_attrs.intersection(proj_attrs.union(left_attrs))
+
+            pushed = JoinQuery(
+                left=ProjectQuery(source=expr.source.left, attributes=list(new_left_attrs)),
+                right=ProjectQuery(source=expr.source.right, attributes=list(new_right_attrs)),
+            )
+            return pushed, "Projection pushdown through join"
 
         return None, None
 
