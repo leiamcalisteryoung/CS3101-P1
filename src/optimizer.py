@@ -45,7 +45,7 @@ class QueryOptimizer:
         expr, phase2_steps = CostBasedJoinOptimizer(self._state).optimize(expr)
         steps.extend(phase2_steps)
 
-        steps.extend(format_query_expr(expr))
+        steps.append(format_query_expr(expr))
 
         return "\n".join(steps)
 
