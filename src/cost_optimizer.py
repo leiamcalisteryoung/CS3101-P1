@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from itertools import permutations
 
 from builder import ProgramState
@@ -137,7 +136,165 @@ class CostBasedJoinOptimizer:
             ]
 
         return []
-
-    # Estimates the total cost of executing a query plan.
+    
+    # Estimates the total cost of executing a query plan by calling the recursive inner method.
     def _estimate_plan_cost(self, expr: QueryExpr) -> float:
-        #TODO 
+        _, _, _, cumulative_cost = self._estimate_stats_and_cost(expr)
+        return cumulative_cost
+
+    # Estimate both output statistics and cumulative plan cost in one bottom-up traversal.
+    #
+    # Returns (rows, attrs, distinct, cost):
+    #   rows     -> estimated output cardinality of expr
+    #   attrs    -> output attribute list of expr
+    #   distinct -> per-attribute distinct count estimates V(A, expr)
+    #   cost     -> cumulative execution cost estimate for expr
+    def _estimate_stats_and_cost(self, expr: QueryExpr) -> tuple[float, list[str], dict[str, float], float]:
+        # Base relation leaf: exact statistics from loaded data.
+        if isinstance(expr, RelVarQuery):
+            relvar = self._state.relvars.get(expr.name)
+            if relvar is None:
+                raise ValueError(f"Unknown relvar '{expr.name}' while estimating cost.")
+
+            attrs = relvar.relation.attr_names()
+            rows = float(len(relvar.tuples))
+            v: dict[str, float] = {}
+            for attr in attrs:
+                distinct_vals = {row[attr] for row in relvar.tuples}
+                v[attr] = float(len(distinct_vals))
+
+            return rows, attrs, v, rows
+
+        if isinstance(expr, EmptyQuery):
+            return 0.0, [], {}, 0.0
+
+        # Selection: estimate selectivity from predicates.
+        if isinstance(expr, SelectQuery):
+            source_rows, source_attrs, source_v, source_cost = self._estimate_stats_and_cost(expr.source)
+            selected_rows = self._estimate_selected_rows(expr.predicate, source_rows, source_v)
+            rows = min(source_rows, selected_rows)
+
+            # Ensure disctinct counts do not exceed output cardinality.
+            v = {attr: min(source_v.get(attr, rows), rows) for attr in source_attrs}
+            return rows, list(source_attrs), v, source_cost
+
+        # Projection: estimate cardinality as V(A, r).
+        if isinstance(expr, ProjectQuery):
+            source_rows, _, source_v, source_cost = self._estimate_stats_and_cost(expr.source)
+            attrs = [a for a in expr.attributes]
+
+            # V(A, r) = max_{a in A} V(a, r), then cap by n(r).
+            projected_distinct = max((source_v.get(attr, 1.0) for attr in attrs), default=1.0)
+            rows = min(source_rows, projected_distinct)
+            v = {attr: min(source_v.get(attr, rows), rows) for attr in attrs}
+            return rows, attrs, v, source_cost
+
+        # Rename: preserve rows/distinct counts, just remap attribute names.
+        if isinstance(expr, RenameQuery):
+            source_rows, source_attrs, source_v, source_cost = self._estimate_stats_and_cost(expr.source)
+            old_attrs = source_attrs
+            new_attrs = list(expr.new_attributes)
+
+            if len(old_attrs) != len(new_attrs):
+                raise ValueError("Rename arity mismatch while estimating cost.")
+
+            rows = source_rows
+            v: dict[str, float] = {}
+            for old_attr, new_attr in zip(old_attrs, new_attrs):
+                v[new_attr] = min(source_v.get(old_attr, rows), rows)
+
+            return rows, new_attrs, v, source_cost
+
+        # Union: sum of input cardinalities.
+        if isinstance(expr, UnionQuery):
+            left_rows, left_attrs, left_v, left_cost = self._estimate_stats_and_cost(expr.left)
+            right_rows, _, right_v, right_cost = self._estimate_stats_and_cost(expr.right)
+
+            rows = left_rows + right_rows
+            attrs = list(left_attrs)
+            v: dict[str, float] = {}
+            for attr in attrs:
+                v[attr] = min(rows, left_v.get(attr, 0.0) + right_v.get(attr, 0.0))
+
+            return rows, attrs, v, left_cost + right_cost + rows
+
+        # Difference: minimum of input cardinalities
+        if isinstance(expr, DifferenceQuery):
+            left_rows, left_attrs, left_v, left_cost = self._estimate_stats_and_cost(expr.left)
+            right_rows, _, _, right_cost = self._estimate_stats_and_cost(expr.right)
+
+            rows = min(left_rows, right_rows)
+            attrs = list(left_attrs)
+            v = {attr: min(left_v.get(attr, rows), rows) for attr in attrs}
+
+            return rows, attrs, v, left_cost + right_cost + rows
+
+        # Join: cartesian product if no shared attributes; otherwise use
+        # min(nr*ns / V(A,r), nr*ns / V(A,s)) over shared attributes.
+        if isinstance(expr, JoinQuery):
+            nr, left_attrs_list, left_v, left_cost = self._estimate_stats_and_cost(expr.left)
+            ns, right_attrs_list, right_v, right_cost = self._estimate_stats_and_cost(expr.right)
+
+            left_attrs = set(left_attrs_list)
+            right_attrs = set(right_attrs_list)
+            shared_attrs = [a for a in left_attrs_list if a in right_attrs]
+
+            if not shared_attrs:
+                # R ∩ S = ∅  -> cartesian product
+                join_rows = nr * ns
+            else:
+                # R ∩ S ≠ ∅  -> use min over shared attributes of (nr*ns / V(A,r)) and (nr*ns / V(A,s)).
+                candidates: list[float] = []
+                for attr in shared_attrs:
+                    v_ar = left_v.get(attr, 1.0)
+                    v_as = right_v.get(attr, 1.0)
+                    candidates.append(min((nr * ns) / v_ar, (nr * ns) / v_as))
+                join_rows = min(candidates) if candidates else (nr * ns)
+
+            # Build output attribute list in natural-join order: left attrs + right-only attrs.
+            right_only = [a for a in right_attrs_list if a not in left_attrs]
+            out_attrs = list(left_attrs_list) + right_only
+
+            # Estimate output distinct counts:
+            # - shared attrs: cannot exceed min(V_left, V_right, join_rows)
+            # - left-only attrs: cannot exceed min(V_left, join_rows)
+            # - right-only attrs: cannot exceed min(V_right, join_rows)
+            out_v: dict[str, float] = {}
+            for attr in out_attrs:
+                if attr in left_attrs and attr in right_attrs:
+                    out_v[attr] = min(join_rows, left_v.get(attr, join_rows), right_v.get(attr, join_rows))
+                elif attr in left_attrs:
+                    out_v[attr] = min(join_rows, left_v.get(attr, join_rows))
+                else:
+                    out_v[attr] = min(join_rows, right_v.get(attr, join_rows))
+
+            # Join contributes its intermediate result size as work, in addition to child costs.
+            return join_rows, out_attrs, out_v, left_cost + right_cost + join_rows
+
+        raise ValueError(f"Unsupported query node type while estimating cost: {type(expr).__name__}")
+
+    # Estimate selected cardinality s for a predicate over a source with n_r rows.
+    # Supports currently available predicate nodes in the AST (= and ∧).
+    def _estimate_selected_rows(self, predicate: Predicate, rows: float, distinct: dict[str, float]) -> float:
+        if rows <= 0.0:
+            return 0.0
+
+        # σA=c(r): nr /V(A,r) 
+        if isinstance(predicate, AttrEqConstPredicate):
+            v_attr = distinct.get(predicate.attr, 1.0)
+            return rows / v_attr
+        
+        # σA=B(r): nr / max(V(A,r), V(B,r))
+        if isinstance(predicate, AttrEqAttrPredicate):
+            v_left = distinct.get(predicate.left_attr, 1.0)
+            v_right = distinct.get(predicate.right_attr, 1.0)
+            return rows / max(v_left, v_right)
+
+        # σθ1∧···∧θn (r): nr ×Πi∈[1,n]si /nnr
+        # For binary AND predicates this becomes (s1 * s2) / n_r.
+        if isinstance(predicate, AndPredicate):
+            left_rows = self._estimate_selected_rows(predicate.left, rows, distinct)
+            right_rows = self._estimate_selected_rows(predicate.right, rows, distinct)
+            return (left_rows * right_rows) / rows
+
+        return rows
