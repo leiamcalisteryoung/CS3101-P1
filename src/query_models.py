@@ -208,7 +208,7 @@ def format_query_expr(expr: QueryExpr) -> str:
 # Pretty-printer for predicates.
 def format_predicate(predicate: Predicate) -> str:
     if isinstance(predicate, AndPredicate):
-        return f"({format_predicate(predicate.left)}∧{format_predicate(predicate.right)})"
+        return f"({format_predicate(predicate.left)} ∧ {format_predicate(predicate.right)})"
 
     if isinstance(predicate, AttrEqAttrPredicate):
         return f"{predicate.left_attr}={predicate.right_attr}"
