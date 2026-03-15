@@ -45,6 +45,8 @@ class QueryOptimizer:
         expr, phase2_steps = CostBasedJoinOptimizer(self._state).optimize(expr)
         steps.extend(phase2_steps)
 
+        steps.extend(format_query_expr(expr))
+
         return "\n".join(steps)
 
     # Apply first applicable rewrite rule in a bottom-up traversal, returning the rewritten query and the name of the rule applied (or None if no rewrite).

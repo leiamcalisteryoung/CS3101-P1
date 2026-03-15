@@ -1,0 +1,16 @@
+DOMAIN ModCode IS String;
+DOMAIN MTitle IS String;
+DOMAIN MSem IS Int;
+DOMAIN MCredit IS Int;
+
+TYPE mc AS ModCode;
+TYPE mt AS MTitle;
+TYPE ms AS MSem;
+TYPE cr AS MCredit;
+
+RELATION module WITH mc, mt, ms, cr;
+
+LOAD "./module.csv" INTO module;
+
+LET renamed BE RENAME module ON lmc, lmt, lms, lcr;
+PROJECT renamed ON lmc, lmt;

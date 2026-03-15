@@ -1,0 +1,20 @@
+DOMAIN ModCode IS String;
+DOMAIN MTitle IS String;
+DOMAIN MSem IS Int;
+DOMAIN MCredit IS Int;
+
+TYPE mc AS ModCode;
+TYPE mt AS MTitle;
+TYPE ms AS MSem;
+TYPE cr AS MCredit;
+
+RELATION module WITH mc, mt, ms, cr;
+
+LOAD "./module.csv" INTO module;
+
+LET leftmod BE RENAME module ON lmc, lmt, lms, lcr;
+LET rightmod BE RENAME module ON rmc, rmt, rms, rcr;
+LET joined BE JOIN leftmod AND rightmod;
+LET s1 BE SELECT joined WHERE lms=2;
+LET s2 BE SELECT s1 WHERE rcr=15;
+SELECT s2 WHERE lcr=rcr;
