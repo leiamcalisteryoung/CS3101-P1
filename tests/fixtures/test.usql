@@ -10,7 +10,7 @@ TYPE cr AS MCredit;
 
 RELATION module WITH mc, mt, ms, cr;
 
-LOAD "./module.csv" INTO module;
+LOAD "./tests/fixtures/module.csv" INTO module;
 
 LET candlemas BE SELECT module WHERE ms=2;
 PROJECT candlemas ON mc,mt,cr;

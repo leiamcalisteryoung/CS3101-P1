@@ -1,4 +1,3 @@
-import os
 import sys
 import tempfile
 import unittest
@@ -6,14 +5,11 @@ from pathlib import Path
 
 from lark.exceptions import UnexpectedInput
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_DIR / "src"))
 
 from builder import USQLModelBuilder
 from parser import parse_usql
-from query_models import LetQuery, ProjectQuery, RelVarQuery
 
 
 class ParserBuilderTests(unittest.TestCase):

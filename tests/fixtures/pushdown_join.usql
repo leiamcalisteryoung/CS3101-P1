@@ -10,7 +10,7 @@ TYPE cr AS MCredit;
 
 RELATION module WITH mc, mt, ms, cr;
 
-LOAD "./module.csv" INTO module;
+LOAD "./tests/fixtures/module.csv" INTO module;
 
 LET leftmod BE RENAME module ON lmc, lmt, lms, lcr;
 LET rightmod BE RENAME module ON rmc, rmt, rms, rcr;
