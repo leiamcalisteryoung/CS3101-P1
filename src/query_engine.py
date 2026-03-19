@@ -2,6 +2,7 @@ from builder import ProgramState
 from models import Attribute, Relation, RelVar
 from query_models import (
     AndPredicate,
+    OrPredicate,
     AttrEqAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
@@ -88,22 +89,56 @@ class QueryEngine:
 
         # for each tuple, add to result if it satisfies the predicate
         for row in source.tuples:
-            # A1 = A2 predicate
-            if isinstance(predicate, AttrEqAttrPredicate):
-                if predicate.left_attr not in row or predicate.right_attr not in row:
-                    raise ValueError("SELECT predicate references missing attribute.")
-
-                if row[predicate.left_attr] == row[predicate.right_attr]:
-                    result_rows.append(dict(row))
-
-            # A = c predicate
-            elif isinstance(predicate, AttrEqConstPredicate):
-                if predicate.attr not in row:
-                    raise ValueError("SELECT predicate references missing attribute.")
-                if row[predicate.attr] == predicate.value:
-                    result_rows.append(dict(row))
+            if self._predicate_holds(row, predicate):
+                result_rows.append(dict(row))
 
         return RelVar(relation=source.relation, tuples=result_rows)
+
+    # Evaluate whether one tuple satisfies a predicate tree.
+    def _predicate_holds(self, row: dict[str, int | str], predicate: Predicate) -> bool:
+        if isinstance(predicate, AttrEqAttrPredicate):
+            if predicate.left_attr not in row or predicate.right_attr not in row:
+                raise ValueError("SELECT predicate references missing attribute.")
+            return self._apply_comparison(
+                row[predicate.left_attr],
+                predicate.operator,
+                row[predicate.right_attr],
+            )
+
+        if isinstance(predicate, AttrEqConstPredicate):
+            if predicate.attr not in row:
+                raise ValueError("SELECT predicate references missing attribute.")
+            return self._apply_comparison(row[predicate.attr], predicate.operator, predicate.value)
+
+        # recursively evaluate AND and OR predicates
+        if isinstance(predicate, AndPredicate):
+            return self._predicate_holds(row, predicate.left) and self._predicate_holds(row, predicate.right)
+
+        if isinstance(predicate, OrPredicate):
+            return self._predicate_holds(row, predicate.left) or self._predicate_holds(row, predicate.right)
+
+        raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
+
+    # Apply one comparison operator to two scalar values.
+    @staticmethod
+    def _apply_comparison(left: int | str, operator: str, right: int | str) -> bool:
+        try:
+            if operator == "=":
+                return left == right
+            if operator == "!=":
+                return left != right
+            if operator == "<":
+                return left < right
+            if operator == "<=":
+                return left <= right
+            if operator == ">":
+                return left > right
+            if operator == ">=":
+                return left >= right
+        except TypeError as exc:
+            raise ValueError(f"Invalid comparison between values '{left}' and '{right}'.") from exc
+
+        raise ValueError(f"Unsupported comparison operator '{operator}'.")
     
     # Keep only selected columns and remove duplicate tuples
     def _project(self, source: RelVar, attr_names: list[str]) -> RelVar:
