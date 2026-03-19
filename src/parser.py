@@ -25,8 +25,18 @@ usql_grammar = """
 
     load: "LOAD" path "INTO" relvar lend
 
-    theta: attr "=" attr
-         | attr "=" const
+    ?predicate: or_pred
+    ?or_pred: and_pred
+         | or_pred OR and_pred        -> or_pred
+    ?and_pred: comparison
+          | and_pred AND comparison   -> and_pred
+          | "(" predicate ")"
+    comparison: attr COMP attr
+              | attr COMP const
+
+    OR: "OR"
+    AND: "AND"
+    COMP: "!=" | "<=" | ">=" | "=" | "<" | ">"
 
     query: let_query
          | select_query
@@ -37,11 +47,11 @@ usql_grammar = """
          | rename_query
 
     let_query: "LET" relvar "BE" query
-    select_query: "SELECT" relvar "WHERE" theta lend
+     select_query: "SELECT" relvar "WHERE" predicate lend
     project_query: "PROJECT" relvar "ON" attrlist lend
-    union_query: "UNION" relvar "AND" relvar lend
-    difference_query: "DIFFERENCE" relvar "AND" relvar lend
-    join_query: "JOIN" relvar "AND" relvar lend
+     union_query: "UNION" relvar "AND" relvar lend
+     difference_query: "DIFFERENCE" relvar "AND" relvar lend
+     join_query: "JOIN" relvar "AND" relvar lend
     rename_query: "RENAME" relvar "ON" attrlist lend
 
 

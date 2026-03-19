@@ -1,6 +1,9 @@
 from lark import Token, Tree
+import ast
 
 from query_models import (
+    AndPredicate,
+    OrPredicate,
     AttrEqAttrPredicate,
     AttrEqConstPredicate,
     RelVarQuery,
@@ -37,9 +40,9 @@ class QueryBuilder:
         # Select queries: SELECT r WHERE p
         if query_type.data == "select_query":
             relvar = self._name_from_node(query_type.children[0])
-            theta_node = query_type.children[1]
+            predicate_node = query_type.children[1]
             # build the predicate from the theta node and return a SelectQuery object
-            return SelectQuery(source=RelVarQuery(name=relvar), predicate=self._build_predicate(theta_node))
+            return SelectQuery(source=RelVarQuery(name=relvar), predicate=self._build_predicate(predicate_node))
 
         # Project queries: PROJECT r ON A1, ..., An
         if query_type.data == "project_query":
@@ -73,30 +76,79 @@ class QueryBuilder:
 
         raise ValueError(f"Unsupported query rule '{query_type.data}'.")
 
-    # Build a predicate object from a theta node.
-    def _build_predicate(self, theta_node: Tree):
-        if not isinstance(theta_node, Tree) or theta_node.data != "theta" or len(theta_node.children) != 2:
-            raise ValueError("Expected rule 'theta' with two operands.")
+    # Build a predicate object from a predicate expression node.
+    def _build_predicate(self, node: Tree):
+        if not isinstance(node, Tree):
+            raise ValueError("Malformed predicate expression.")
 
-        # Get the left attribute name and the right operand
-        left_attr = self._name_from_node(theta_node.children[0])
-        right = theta_node.children[1]
+        # These are wrappers for comparison predicates of the form attr COMP attr/const
+        if node.data == "predicate":
+            return self._build_predicate(node.children[0])
 
-        # If right operand is an attribute, return an AttrEqAttrPredicate
-        if isinstance(right, Tree) and right.data == "attr":
-            return AttrEqAttrPredicate(left_attr=left_attr, right_attr=self._name_from_node(right))
+        # For OR and AND predicates, recursively build the left and right subpredicates and combine them.
+        if node.data == "or_pred":
+            parts = [self._build_predicate(child) for child in node.children if isinstance(child, Tree)]
+            if len(parts) != 2:
+                raise ValueError("Malformed OR predicate.")
+            return OrPredicate(left=parts[0], right=parts[1])
 
-        # If right operand is a constant, get the constant value and return an AttrEqConstPredicate
-        if isinstance(right, Tree) and right.data == "const":
-            constant_token = right.children[0]
-            if not isinstance(constant_token, Token):
-                raise ValueError("Malformed constant token in theta predicate.")
-            if constant_token.type == "INT":
-                return AttrEqConstPredicate(attr=left_attr, value=int(constant_token.value))
+        if node.data == "and_pred":
+            parts = [self._build_predicate(child) for child in node.children if isinstance(child, Tree)]
+            if len(parts) != 2:
+                raise ValueError("Malformed AND predicate.")
+            return AndPredicate(left=parts[0], right=parts[1])
+
+        # Base case: comparison predicates
+        if node.data == "comparison":
+            if len(node.children) != 3:
+                raise ValueError("Expected comparison with left operand, operator, and right operand.")
             
-            return AttrEqConstPredicate(attr=left_attr, value=constant_token.value)
+            # Extract the left attribute, operator, and right operand (attribute or constant)
+            left_attr = self._name_from_node(node.children[0])
+            operator_token = node.children[1]
+            right = node.children[2]
 
-        raise ValueError("Malformed theta predicate.")
+            if not isinstance(operator_token, Token) or operator_token.type != "COMP":
+                raise ValueError("Malformed comparison operator in predicate.")
+
+            operator = operator_token.value
+
+            # Case attributes on both sides: A1 COMP A2
+            if isinstance(right, Tree) and right.data == "attr":
+                right_attr = self._name_from_node(right)
+                return AttrEqAttrPredicate(
+                    left_attr=left_attr,
+                    operator=operator,
+                    right_attr=right_attr,
+                )
+
+            # Case constant on the right side: A COMP c
+            if isinstance(right, Tree) and right.data == "const":
+                constant_token = right.children[0]
+                if not isinstance(constant_token, Token):
+                    raise ValueError("Malformed constant token in predicate.")
+
+                if constant_token.type == "INT":
+                    value: int | str = int(constant_token.value)
+                elif constant_token.type == "ESCAPED_STRING":
+                    value = ast.literal_eval(constant_token.value)
+                else:
+                    value = constant_token.value
+
+                return AttrEqConstPredicate(
+                    attr=left_attr,
+                    operator=operator,
+                    value=value,
+                )
+
+            raise ValueError("Malformed comparison predicate.")
+
+        # If grammar inlines single-child layers, recurse into first child tree.
+        tree_children = [child for child in node.children if isinstance(child, Tree)]
+        if len(tree_children) == 1:
+            return self._build_predicate(tree_children[0])
+
+        raise ValueError(f"Unsupported predicate rule '{node.data}'.")
 
     # Helper method to extract attribute names from an attrlist node
     @staticmethod

@@ -3,21 +3,34 @@ from dataclasses import dataclass
 
 @dataclass
 class AttrEqAttrPredicate:
-    """Predicate comparing two attributes (A1 = A2)"""
+    """Predicate comparing two attributes with an operator.
+    Supported operators: =, !=, <, <=, >, >=
+    """
     left_attr: str
+    operator: str
     right_attr: str
 
 
 @dataclass
 class AttrEqConstPredicate:
-    """Predicate comparing an attribute to a constant (A1 = c)"""
+    """Predicate comparing an attribute to a constant with an operator.
+    Supported operators: =, !=, <, <=, >, >=
+    """
     attr: str
+    operator: str
     value: int | str
 
 
 @dataclass
 class AndPredicate:
     """Conjunction of two predicates (θ1 ∧ θ2) (internal optimizer-only node)"""
+    left: "Predicate"
+    right: "Predicate"
+
+
+@dataclass
+class OrPredicate:
+    """Disjunction of two predicates (θ1 ∨ θ2)"""
     left: "Predicate"
     right: "Predicate"
 
@@ -91,7 +104,12 @@ class RenameQuery:
 
 
 # Type aliases
-Predicate = AttrEqAttrPredicate | AttrEqConstPredicate | AndPredicate
+Predicate = (
+    AttrEqAttrPredicate
+    | AttrEqConstPredicate
+    | AndPredicate
+    | OrPredicate
+)
 QueryExpr = EmptyQuery | RelVarQuery | SelectQuery | ProjectQuery | UnionQuery | DifferenceQuery | JoinQuery | RenameQuery
 Query = LetQuery | QueryExpr
 
@@ -210,12 +228,15 @@ def format_predicate(predicate: Predicate) -> str:
     if isinstance(predicate, AndPredicate):
         return f"({format_predicate(predicate.left)} ∧ {format_predicate(predicate.right)})"
 
+    if isinstance(predicate, OrPredicate):
+        return f"({format_predicate(predicate.left)} ∨ {format_predicate(predicate.right)})"
+
     if isinstance(predicate, AttrEqAttrPredicate):
-        return f"{predicate.left_attr}={predicate.right_attr}"
+        return f"{predicate.left_attr}{predicate.operator}{predicate.right_attr}"
 
     if isinstance(predicate, AttrEqConstPredicate):
         value = repr(predicate.value) if isinstance(predicate.value, str) else str(predicate.value)
-        return f"{predicate.attr}={value}"
+        return f"{predicate.attr}{predicate.operator}{value}"
 
     raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
 
@@ -228,6 +249,9 @@ def predicate_attributes(predicate: Predicate) -> set[str]:
         return {predicate.attr}
 
     if isinstance(predicate, AndPredicate):
+        return predicate_attributes(predicate.left) | predicate_attributes(predicate.right)
+
+    if isinstance(predicate, OrPredicate):
         return predicate_attributes(predicate.left) | predicate_attributes(predicate.right)
 
     raise ValueError(f"Unsupported predicate type: {type(predicate).__name__}")
