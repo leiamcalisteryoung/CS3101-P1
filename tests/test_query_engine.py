@@ -11,6 +11,7 @@ from builder import ProgramState
 from models import Attribute, Domain, GType, Relation, RelVar
 from query_engine import QueryEngine
 from query_models import (
+    OrPredicate,
     AttrEqAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
@@ -99,16 +100,41 @@ class QueryEngineUnitTests(unittest.TestCase):
 
     def test_eval_query_select_attr_eq_const(self) -> None:
         # Verifies SELECT with A=c filters rows correctly.
-        query = SelectQuery(source=RelVarQuery(name="r"), predicate=AttrEqConstPredicate(attr="grp", value=1))
+        query = SelectQuery(
+            source=RelVarQuery(name="r"),
+            predicate=AttrEqConstPredicate(attr="grp", operator="=", value=1),
+        )
         result = self.engine._eval_query(query, self.state)
         self.assertEqual(len(result.tuples), 2)
         self.assertTrue(all(row["grp"] == 1 for row in result.tuples))
 
     def test_eval_query_select_attr_eq_attr(self) -> None:
         # Verifies SELECT with A1=A2 filters rows correctly.
-        query = SelectQuery(source=RelVarQuery(name="r"), predicate=AttrEqAttrPredicate(left_attr="id", right_attr="grp"))
+        query = SelectQuery(
+            source=RelVarQuery(name="r"),
+            predicate=AttrEqAttrPredicate(left_attr="id", operator="=", right_attr="grp"),
+        )
         result = self.engine._eval_query(query, self.state)
         self.assertEqual(result.tuples, [{"id": 1, "name": "alpha", "grp": 1}])
+
+    def test_eval_query_select_attr_inequality(self) -> None:
+        # Verifies SELECT supports inequality predicates.
+        query = SelectQuery(
+            source=RelVarQuery(name="r"),
+            predicate=AttrEqConstPredicate(attr="id", operator=">=", value=2),
+        )
+        result = self.engine._eval_query(query, self.state)
+        self.assertEqual(result.tuples, [{"id": 2, "name": "beta", "grp": 1}, {"id": 3, "name": "gamma", "grp": 2}])
+
+    def test_eval_query_select_or_predicate(self) -> None:
+        # Verifies SELECT supports OR composition.
+        predicate = OrPredicate(
+            left=AttrEqConstPredicate(attr="id", operator="=", value=1),
+            right=AttrEqAttrPredicate(left_attr="id", operator="!=", right_attr="grp"),
+        )
+        query = SelectQuery(source=RelVarQuery(name="r"), predicate=predicate)
+        result = self.engine._eval_query(query, self.state)
+        self.assertEqual(result.tuples, [{"id": 1, "name": "alpha", "grp": 1}, {"id": 2, "name": "beta", "grp": 1}, {"id": 3, "name": "gamma", "grp": 2}])
 
     def test_eval_query_project_dedupes(self) -> None:
         # Verifies PROJECT removes duplicate projected tuples.
@@ -167,7 +193,10 @@ class QueryEngineUnitTests(unittest.TestCase):
         # Verifies run() executes all queries in order and returns final result.
         self.state.queries = [
             LetQuery(target_relvar="x", query=ProjectQuery(source=RelVarQuery(name="r"), attributes=["id", "grp"])),
-            SelectQuery(source=RelVarQuery(name="x"), predicate=AttrEqConstPredicate(attr="grp", value=1)),
+            SelectQuery(
+                source=RelVarQuery(name="x"),
+                predicate=AttrEqConstPredicate(attr="grp", operator="=", value=1),
+            ),
         ]
         result = self.engine.run(self.state)
         self.assertEqual(result.relation.attr_names(), ["id", "grp"])

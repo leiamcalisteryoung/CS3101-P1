@@ -79,8 +79,14 @@ class QueryOptimizerUnitTests(unittest.TestCase):
     # === Unary equivalence tests ===
     def test_unary_selection_merge(self) -> None:
         # Verifies nested selections merge into one conjunction predicate.
-        inner = SelectQuery(source=RelVarQuery("r"), predicate=AttrEqConstPredicate("a", 1))
-        expr = SelectQuery(source=inner, predicate=AttrEqConstPredicate("b", 1))
+        inner = SelectQuery(
+            source=RelVarQuery("r"),
+            predicate=AttrEqConstPredicate(attr="a", operator="=", value=1),
+        )
+        expr = SelectQuery(
+            source=inner,
+            predicate=AttrEqConstPredicate(attr="b", operator="=", value=1),
+        )
         rewritten, rule = self.optimizer._apply_unary_equivalences(expr)
         self.assertEqual(rule, "Selection conjunction merge")
         self.assertIsInstance(rewritten, SelectQuery)
@@ -107,7 +113,7 @@ class QueryOptimizerUnitTests(unittest.TestCase):
         # Verifies selection pushdown through projection rule shape.
         expr = SelectQuery(
             source=ProjectQuery(source=RelVarQuery("r"), attributes=["a", "b"]),
-            predicate=AttrEqConstPredicate("a", 1),
+            predicate=AttrEqConstPredicate(attr="a", operator="=", value=1),
         )
         rewritten, rule = self.optimizer._apply_selection_pushdown(expr)
         self.assertEqual(rule, "Selection pushdown through projection")
@@ -118,21 +124,24 @@ class QueryOptimizerUnitTests(unittest.TestCase):
         # Verifies selection pushdown through rename maps predicate back to source names.
         expr = SelectQuery(
             source=RenameQuery(source=RelVarQuery("r"), new_attributes=["x", "y", "z"]),
-            predicate=AttrEqConstPredicate("x", 1),
+            predicate=AttrEqConstPredicate(attr="x", operator="=", value=1),
         )
         rewritten, rule = self.optimizer._apply_selection_pushdown(expr)
         self.assertEqual(rule, "Selection pushdown through rename")
         self.assertIsInstance(rewritten, RenameQuery)
         self.assertIsInstance(rewritten.source, SelectQuery)
-        self.assertEqual(rewritten.source.predicate, AttrEqConstPredicate("a", 1))
+        self.assertEqual(
+            rewritten.source.predicate,
+            AttrEqConstPredicate(attr="a", operator="=", value=1),
+        )
 
     def test_selection_pushdown_through_join_splits_predicates(self) -> None:
         # Verifies join pushdown keeps cross predicate outside and pushes side-local predicates.
         left = RenameQuery(source=RelVarQuery("s"), new_attributes=["la", "lb"])
         right = RenameQuery(source=RelVarQuery("t"), new_attributes=["rb", "rc"])
         predicate = AndPredicate(
-            left=AttrEqConstPredicate("la", 1),
-            right=AttrEqAttrPredicate("lb", "rb"),
+            left=AttrEqConstPredicate(attr="la", operator="=", value=1),
+            right=AttrEqAttrPredicate(left_attr="lb", operator="=", right_attr="rb"),
         )
         expr = SelectQuery(source=JoinQuery(left=left, right=right), predicate=predicate)
         rewritten, rule = self.optimizer._apply_selection_pushdown(expr)
@@ -190,10 +199,10 @@ class QueryOptimizerUnitTests(unittest.TestCase):
     def test_flatten_conjunction(self) -> None:
         # Verifies conjunction flattening returns atomic predicates in order.
         pred = AndPredicate(
-            left=AttrEqConstPredicate("a", 1),
+            left=AttrEqConstPredicate(attr="a", operator="=", value=1),
             right=AndPredicate(
-                left=AttrEqConstPredicate("b", 2),
-                right=AttrEqAttrPredicate("a", "b"),
+                left=AttrEqConstPredicate(attr="b", operator="=", value=2),
+                right=AttrEqAttrPredicate(left_attr="a", operator="=", right_attr="b"),
             ),
         )
         flat = QueryOptimizer._flatten_conjunction(pred)
@@ -201,7 +210,10 @@ class QueryOptimizerUnitTests(unittest.TestCase):
 
     def test_build_conjunction(self) -> None:
         # Verifies conjunction builder produces a nested AndPredicate tree.
-        preds = [AttrEqConstPredicate("a", 1), AttrEqConstPredicate("b", 2)]
+        preds = [
+            AttrEqConstPredicate(attr="a", operator="=", value=1),
+            AttrEqConstPredicate(attr="b", operator="=", value=2),
+        ]
         result = QueryOptimizer._build_conjunction(preds)
         self.assertIsInstance(result, AndPredicate)
 
@@ -218,15 +230,15 @@ class QueryOptimizerUnitTests(unittest.TestCase):
     def test_rename_predicate_attributes_recursive(self) -> None:
         # Verifies predicate attribute renaming handles nested conjunctions.
         pred = AndPredicate(
-            left=AttrEqConstPredicate("x", 1),
-            right=AttrEqAttrPredicate("x", "y"),
+            left=AttrEqConstPredicate(attr="x", operator="=", value=1),
+            right=AttrEqAttrPredicate(left_attr="x", operator="=", right_attr="y"),
         )
         renamed = self.optimizer._rename_predicate_attributes(pred, {"x": "a", "y": "b"})
         self.assertEqual(
             renamed,
             AndPredicate(
-                left=AttrEqConstPredicate("a", 1),
-                right=AttrEqAttrPredicate("a", "b"),
+                left=AttrEqConstPredicate(attr="a", operator="=", value=1),
+                right=AttrEqAttrPredicate(left_attr="a", operator="=", right_attr="b"),
             ),
         )
 
@@ -241,7 +253,10 @@ class QueryOptimizerUnitTests(unittest.TestCase):
     def test_rewrite_once_bottom_up_rewrites_child_first(self) -> None:
         # Verifies bottom-up pass rewrites child before attempting parent rewrite.
         child = UnionQuery(left=RelVarQuery("r"), right=RelVarQuery("r"))
-        expr = SelectQuery(source=child, predicate=AttrEqConstPredicate("a", 1))
+        expr = SelectQuery(
+            source=child,
+            predicate=AttrEqConstPredicate(attr="a", operator="=", value=1),
+        )
         rewritten, rule = self.optimizer._rewrite_once_bottom_up(expr)
         self.assertEqual(rule, "Trivial simplification")
         self.assertIsInstance(rewritten, SelectQuery)

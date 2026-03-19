@@ -168,22 +168,28 @@ class CostOptimizerTests(unittest.TestCase):
 
     def test_estimate_stats_select_attr_eq_const(self) -> None:
         # Verifies selection cardinality uses n_r / V(A,r).
-        expr = SelectQuery(source=RelVarQuery("r"), predicate=AttrEqConstPredicate("b", 1))
+        expr = SelectQuery(
+            source=RelVarQuery("r"),
+            predicate=AttrEqConstPredicate(attr="b", operator="=", value=1),
+        )
         rows, attrs, _, _ = self.optimizer._estimate_stats_and_cost(expr)
         self.assertEqual(attrs, ["a", "b"])
         self.assertAlmostEqual(rows, 1.5)
 
     def test_estimate_stats_select_attr_eq_attr(self) -> None:
         # Verifies selection cardinality uses n_r / max(V(A,r),V(B,r)).
-        expr = SelectQuery(source=RelVarQuery("r"), predicate=AttrEqAttrPredicate("a", "b"))
+        expr = SelectQuery(
+            source=RelVarQuery("r"),
+            predicate=AttrEqAttrPredicate(left_attr="a", operator="=", right_attr="b"),
+        )
         rows, _, _, _ = self.optimizer._estimate_stats_and_cost(expr)
         self.assertAlmostEqual(rows, 1.0)
 
     def test_estimate_stats_select_and_predicate(self) -> None:
         # Verifies conjunction selection uses (s1*s2)/n_r composition.
         pred = AndPredicate(
-            left=AttrEqConstPredicate("b", 1),
-            right=AttrEqConstPredicate("a", 1),
+            left=AttrEqConstPredicate(attr="b", operator="=", value=1),
+            right=AttrEqConstPredicate(attr="a", operator="=", value=1),
         )
         expr = SelectQuery(source=RelVarQuery("r"), predicate=pred)
         rows, _, _, _ = self.optimizer._estimate_stats_and_cost(expr)
