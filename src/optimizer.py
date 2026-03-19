@@ -2,6 +2,7 @@ from builder import ProgramState
 from cost_optimizer import CostBasedJoinOptimizer
 from query_models import (
     AndPredicate,
+    OrPredicate,
     AttrEqAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
@@ -368,7 +369,7 @@ class QueryOptimizer:
 
         return None, None
 
-    # Flatten a predicate tree into a list of atomic predicates by recursively flattening AndPredicates. Leaves will be AttrEqAttrPredicate or AttrEqConstPredicate.
+    # Flatten a predicate tree into a list of atomic predicates by recursively flattening AndPredicates.
     @staticmethod
     def _flatten_conjunction(pred: Predicate) -> list[Predicate]:
         if isinstance(pred, AndPredicate):
@@ -376,7 +377,7 @@ class QueryOptimizer:
                 QueryOptimizer._flatten_conjunction(pred.left)
                 + QueryOptimizer._flatten_conjunction(pred.right)
             )
-        # Leaf predicate (AttrEqAttrPredicate or AttrEqConstPredicate)
+        # Leaf predicate
         return [pred]
 
     # Combine a list of predicates into a left-associative AndPredicate conjunction.
@@ -429,17 +430,25 @@ class QueryOptimizer:
         if isinstance(predicate, AttrEqAttrPredicate):
             return AttrEqAttrPredicate(
                 left_attr=new_to_old[predicate.left_attr],
+                operator=predicate.operator,
                 right_attr=new_to_old[predicate.right_attr],
             )
 
         if isinstance(predicate, AttrEqConstPredicate):
             return AttrEqConstPredicate(
                 attr=new_to_old[predicate.attr],
+                operator=predicate.operator,
                 value=predicate.value,
             )
 
         if isinstance(predicate, AndPredicate):
             return AndPredicate(
+                left=self._rename_predicate_attributes(predicate.left, new_to_old),
+                right=self._rename_predicate_attributes(predicate.right, new_to_old),
+            )
+
+        if isinstance(predicate, OrPredicate):
+            return OrPredicate(
                 left=self._rename_predicate_attributes(predicate.left, new_to_old),
                 right=self._rename_predicate_attributes(predicate.right, new_to_old),
             )

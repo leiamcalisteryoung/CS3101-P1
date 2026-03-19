@@ -3,6 +3,7 @@ from itertools import permutations
 from builder import ProgramState
 from query_models import (
     AndPredicate,
+    OrPredicate,
     AttrEqAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
@@ -274,21 +275,45 @@ class CostBasedJoinOptimizer:
         raise ValueError(f"Unsupported query node type while estimating cost: {type(expr).__name__}")
 
     # Estimate selected cardinality s for a predicate over a source with n_r rows.
-    # Supports currently available predicate nodes in the AST (= and ∧).
-    def _estimate_selected_rows(self, predicate: Predicate, rows: float, distinct: dict[str, float]) -> float:
+    def _estimate_selected_rows(
+        self,
+        predicate: Predicate,
+        rows: float,
+        distinct: dict[str, float],
+    ) -> float:
         if rows <= 0.0:
             return 0.0
 
-        # σA=c(r): nr /V(A,r) 
-        if isinstance(predicate, AttrEqConstPredicate):
-            v_attr = distinct.get(predicate.attr, 1.0)
-            return rows / v_attr
-        
-        # σA=B(r): nr / max(V(A,r), V(B,r))
         if isinstance(predicate, AttrEqAttrPredicate):
-            v_left = distinct.get(predicate.left_attr, 1.0)
-            v_right = distinct.get(predicate.right_attr, 1.0)
-            return rows / max(v_left, v_right)
+            if predicate.operator == "=":
+                # Case A1=A2 use n_r / max(V(A1), V(A2))
+                v_left = distinct.get(predicate.left_attr, 1.0)
+                v_right = distinct.get(predicate.right_attr, 1.0)
+                return rows / max(v_left, v_right)
+
+            if predicate.operator == "!=":
+                # Case A1!=A2: n_r - n_r/max(V(A1), V(A2))
+                v_left = distinct.get(predicate.left_attr, 1.0)
+                v_right = distinct.get(predicate.right_attr, 1.0)
+                eq_rows = rows / max(v_left, v_right)
+                return rows - eq_rows
+
+            # Default to rows/3 for other operators.
+            return rows / 3.0
+
+        if isinstance(predicate, AttrEqConstPredicate):
+            # Case A=c: n_r / V(A, r)
+            if predicate.operator == "=":
+                v_attr = distinct.get(predicate.attr, 1.0)
+                return rows / v_attr
+
+            # Case A!=c: n_r * (1 - (1 / V(A, r)))
+            if predicate.operator == "!=":
+                v_attr = distinct.get(predicate.attr, 1.0)
+                return rows * (1.0 - (1.0 / v_attr))
+
+            # Default to rows/3 for other operators.
+            return rows / 3.0
 
         # σθ1∧···∧θn (r): nr ×Πi∈[1,n]si /nnr
         # For binary AND predicates this becomes (s1 * s2) / n_r.
@@ -296,5 +321,12 @@ class CostBasedJoinOptimizer:
             left_rows = self._estimate_selected_rows(predicate.left, rows, distinct)
             right_rows = self._estimate_selected_rows(predicate.right, rows, distinct)
             return (left_rows * right_rows) / rows
+
+        # σ(θ1 ∨ θ2): nr ×(1−Πi∈[1,n](1−si /nr ))
+        # For binary OR predicates this becomes n_r * (1 - ((1 - (s1 / n_r)) * (1 - (s2 / n_r))))).
+        if isinstance(predicate, OrPredicate):
+            left_rows = self._estimate_selected_rows(predicate.left, rows, distinct)
+            right_rows = self._estimate_selected_rows(predicate.right, rows, distinct)
+            return rows * (1.0 - ((1.0 - (left_rows / rows)) * (1.0 - (right_rows / rows))))
 
         return rows
