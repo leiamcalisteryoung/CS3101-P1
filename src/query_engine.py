@@ -3,7 +3,7 @@ from models import Attribute, Relation, RelVar
 from query_models import (
     AndPredicate,
     OrPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
     JoinQuery,
@@ -96,7 +96,7 @@ class QueryEngine:
 
     # Evaluate whether one tuple satisfies a predicate tree.
     def _predicate_holds(self, row: dict[str, int | str], predicate: Predicate) -> bool:
-        if isinstance(predicate, AttrEqAttrPredicate):
+        if isinstance(predicate, AttrOpAttrPredicate):
             if predicate.left_attr not in row or predicate.right_attr not in row:
                 raise ValueError("SELECT predicate references missing attribute.")
             return self._apply_comparison(

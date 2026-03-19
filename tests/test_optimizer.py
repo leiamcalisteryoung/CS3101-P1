@@ -15,7 +15,7 @@ from optimizer import QueryOptimizer
 from query_engine import QueryEngine
 from query_models import (
     AndPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
     EmptyQuery,
@@ -141,7 +141,7 @@ class QueryOptimizerUnitTests(unittest.TestCase):
         right = RenameQuery(source=RelVarQuery("t"), new_attributes=["rb", "rc"])
         predicate = AndPredicate(
             left=AttrEqConstPredicate(attr="la", operator="=", value=1),
-            right=AttrEqAttrPredicate(left_attr="lb", operator="=", right_attr="rb"),
+            right=AttrOpAttrPredicate(left_attr="lb", operator="=", right_attr="rb"),
         )
         expr = SelectQuery(source=JoinQuery(left=left, right=right), predicate=predicate)
         rewritten, rule = self.optimizer._apply_selection_pushdown(expr)
@@ -202,7 +202,7 @@ class QueryOptimizerUnitTests(unittest.TestCase):
             left=AttrEqConstPredicate(attr="a", operator="=", value=1),
             right=AndPredicate(
                 left=AttrEqConstPredicate(attr="b", operator="=", value=2),
-                right=AttrEqAttrPredicate(left_attr="a", operator="=", right_attr="b"),
+                right=AttrOpAttrPredicate(left_attr="a", operator="=", right_attr="b"),
             ),
         )
         flat = QueryOptimizer._flatten_conjunction(pred)
@@ -231,14 +231,14 @@ class QueryOptimizerUnitTests(unittest.TestCase):
         # Verifies predicate attribute renaming handles nested conjunctions.
         pred = AndPredicate(
             left=AttrEqConstPredicate(attr="x", operator="=", value=1),
-            right=AttrEqAttrPredicate(left_attr="x", operator="=", right_attr="y"),
+            right=AttrOpAttrPredicate(left_attr="x", operator="=", right_attr="y"),
         )
         renamed = self.optimizer._rename_predicate_attributes(pred, {"x": "a", "y": "b"})
         self.assertEqual(
             renamed,
             AndPredicate(
                 left=AttrEqConstPredicate(attr="a", operator="=", value=1),
-                right=AttrEqAttrPredicate(left_attr="a", operator="=", right_attr="b"),
+                right=AttrOpAttrPredicate(left_attr="a", operator="=", right_attr="b"),
             ),
         )
 

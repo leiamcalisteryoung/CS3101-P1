@@ -21,7 +21,7 @@ Run optimizer mode:
 Run all tests:
 
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover tests -v
 ```
 
 Run one test file:

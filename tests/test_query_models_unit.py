@@ -10,7 +10,7 @@ if str(SRC) not in sys.path:
 from query_models import (
     AndPredicate,
     OrPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
     EmptyQuery,
@@ -32,7 +32,7 @@ class QueryModelsUnitTests(unittest.TestCase):
     # === Predicate attribute extraction tests ===
     def test_predicate_attributes_for_attr_eq_attr(self) -> None:
         # Verifies attribute extraction for A1=A2 leaf predicates.
-        pred = AttrEqAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr")
+        pred = AttrOpAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr")
         self.assertEqual(predicate_attributes(pred), {"lcr", "rcr"})
 
     def test_predicate_attributes_for_attr_eq_const(self) -> None:
@@ -44,21 +44,21 @@ class QueryModelsUnitTests(unittest.TestCase):
         # Verifies recursive attribute extraction across conjunction predicates.
         pred = AndPredicate(
             left=AttrEqConstPredicate(attr="ms", operator="=", value=2),
-            right=AttrEqAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr"),
+            right=AttrOpAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr"),
         )
         self.assertEqual(predicate_attributes(pred), {"ms", "lcr", "rcr"})
 
     def test_predicate_attributes_for_or(self) -> None:
         pred = OrPredicate(
             left=AttrEqConstPredicate(attr="ms", operator=">=", value=2),
-            right=AttrEqAttrPredicate(left_attr="lcr", operator="!=", right_attr="rcr"),
+            right=AttrOpAttrPredicate(left_attr="lcr", operator="!=", right_attr="rcr"),
         )
         self.assertEqual(predicate_attributes(pred), {"ms", "lcr", "rcr"})
 
     # === Query expression pretty-printing tests ===
     def test_format_predicate_attr_eq_attr(self) -> None:
         # Verifies pretty-printing for A1=A2 predicates.
-        pred = AttrEqAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr")
+        pred = AttrOpAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr")
         self.assertEqual(format_predicate(pred), "lcr=rcr")
 
     def test_format_predicate_attr_eq_const(self) -> None:
@@ -70,14 +70,14 @@ class QueryModelsUnitTests(unittest.TestCase):
         # Verifies pretty-printing for conjunction predicates with parentheses.
         pred = AndPredicate(
             left=AttrEqConstPredicate(attr="ms", operator="=", value=2),
-            right=AttrEqAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr"),
+            right=AttrOpAttrPredicate(left_attr="lcr", operator="=", right_attr="rcr"),
         )
         self.assertEqual(format_predicate(pred), "(ms=2 ∧ lcr=rcr)")
 
     def test_format_predicate_or(self) -> None:
         pred = OrPredicate(
             left=AttrEqConstPredicate(attr="ms", operator=">=", value=2),
-            right=AttrEqAttrPredicate(left_attr="lcr", operator="!=", right_attr="rcr"),
+            right=AttrOpAttrPredicate(left_attr="lcr", operator="!=", right_attr="rcr"),
         )
         self.assertEqual(format_predicate(pred), "(ms>=2 ∨ lcr!=rcr)")
 

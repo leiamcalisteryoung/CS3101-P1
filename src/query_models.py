@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class AttrEqAttrPredicate:
+class AttrOpAttrPredicate:
     """Predicate comparing two attributes with an operator.
     Supported operators: =, !=, <, <=, >, >=
     """
@@ -105,7 +105,7 @@ class RenameQuery:
 
 # Type aliases
 Predicate = (
-    AttrEqAttrPredicate
+    AttrOpAttrPredicate
     | AttrEqConstPredicate
     | AndPredicate
     | OrPredicate
@@ -231,7 +231,7 @@ def format_predicate(predicate: Predicate) -> str:
     if isinstance(predicate, OrPredicate):
         return f"({format_predicate(predicate.left)} ∨ {format_predicate(predicate.right)})"
 
-    if isinstance(predicate, AttrEqAttrPredicate):
+    if isinstance(predicate, AttrOpAttrPredicate):
         return f"{predicate.left_attr}{predicate.operator}{predicate.right_attr}"
 
     if isinstance(predicate, AttrEqConstPredicate):
@@ -242,7 +242,7 @@ def format_predicate(predicate: Predicate) -> str:
 
 # Gets the set of attribute names referenced in a predicate (for optimizer use).
 def predicate_attributes(predicate: Predicate) -> set[str]:
-    if isinstance(predicate, AttrEqAttrPredicate):
+    if isinstance(predicate, AttrOpAttrPredicate):
         return {predicate.left_attr, predicate.right_attr}
 
     if isinstance(predicate, AttrEqConstPredicate):

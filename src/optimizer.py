@@ -3,7 +3,7 @@ from cost_optimizer import CostBasedJoinOptimizer
 from query_models import (
     AndPredicate,
     OrPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
     EmptyQuery,
@@ -427,8 +427,8 @@ class QueryOptimizer:
         predicate: Predicate,
         new_to_old: dict[str, str],
     ) -> Predicate:
-        if isinstance(predicate, AttrEqAttrPredicate):
-            return AttrEqAttrPredicate(
+        if isinstance(predicate, AttrOpAttrPredicate):
+            return AttrOpAttrPredicate(
                 left_attr=new_to_old[predicate.left_attr],
                 operator=predicate.operator,
                 right_attr=new_to_old[predicate.right_attr],

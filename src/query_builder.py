@@ -4,7 +4,7 @@ import ast
 from query_models import (
     AndPredicate,
     OrPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     RelVarQuery,
     DifferenceQuery,
@@ -116,7 +116,7 @@ class QueryBuilder:
             # Case attributes on both sides: A1 COMP A2
             if isinstance(right, Tree) and right.data == "attr":
                 right_attr = self._name_from_node(right)
-                return AttrEqAttrPredicate(
+                return AttrOpAttrPredicate(
                     left_attr=left_attr,
                     operator=operator,
                     right_attr=right_attr,

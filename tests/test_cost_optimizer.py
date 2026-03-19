@@ -12,7 +12,7 @@ from cost_optimizer import CostBasedJoinOptimizer
 from models import Attribute, Domain, GType, Relation, RelVar
 from query_models import (
     AndPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
     EmptyQuery,
@@ -180,7 +180,7 @@ class CostOptimizerTests(unittest.TestCase):
         # Verifies selection cardinality uses n_r / max(V(A,r),V(B,r)).
         expr = SelectQuery(
             source=RelVarQuery("r"),
-            predicate=AttrEqAttrPredicate(left_attr="a", operator="=", right_attr="b"),
+            predicate=AttrOpAttrPredicate(left_attr="a", operator="=", right_attr="b"),
         )
         rows, _, _, _ = self.optimizer._estimate_stats_and_cost(expr)
         self.assertAlmostEqual(rows, 1.0)

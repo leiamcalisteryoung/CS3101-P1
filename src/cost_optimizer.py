@@ -4,7 +4,7 @@ from builder import ProgramState
 from query_models import (
     AndPredicate,
     OrPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
     EmptyQuery,
@@ -284,7 +284,7 @@ class CostBasedJoinOptimizer:
         if rows <= 0.0:
             return 0.0
 
-        if isinstance(predicate, AttrEqAttrPredicate):
+        if isinstance(predicate, AttrOpAttrPredicate):
             if predicate.operator == "=":
                 # Case A1=A2 use n_r / max(V(A1), V(A2))
                 v_left = distinct.get(predicate.left_attr, 1.0)

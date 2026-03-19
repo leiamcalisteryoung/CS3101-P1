@@ -12,7 +12,7 @@ from models import Attribute, Domain, GType, Relation, RelVar
 from query_engine import QueryEngine
 from query_models import (
     OrPredicate,
-    AttrEqAttrPredicate,
+    AttrOpAttrPredicate,
     AttrEqConstPredicate,
     DifferenceQuery,
     JoinQuery,
@@ -112,7 +112,7 @@ class QueryEngineUnitTests(unittest.TestCase):
         # Verifies SELECT with A1=A2 filters rows correctly.
         query = SelectQuery(
             source=RelVarQuery(name="r"),
-            predicate=AttrEqAttrPredicate(left_attr="id", operator="=", right_attr="grp"),
+            predicate=AttrOpAttrPredicate(left_attr="id", operator="=", right_attr="grp"),
         )
         result = self.engine._eval_query(query, self.state)
         self.assertEqual(result.tuples, [{"id": 1, "name": "alpha", "grp": 1}])
@@ -130,7 +130,7 @@ class QueryEngineUnitTests(unittest.TestCase):
         # Verifies SELECT supports OR composition.
         predicate = OrPredicate(
             left=AttrEqConstPredicate(attr="id", operator="=", value=1),
-            right=AttrEqAttrPredicate(left_attr="id", operator="!=", right_attr="grp"),
+            right=AttrOpAttrPredicate(left_attr="id", operator="!=", right_attr="grp"),
         )
         query = SelectQuery(source=RelVarQuery(name="r"), predicate=predicate)
         result = self.engine._eval_query(query, self.state)
